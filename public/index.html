@@ -1,0 +1,118 @@
+<!-- public/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>HSync — Smart Scheduling</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+  </head>
+  <body class="page page-home">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">H</span>
+        <span class="brand-text">HSync</span>
+      </div>
+      <div class="topbar-subtitle">A cleaner, mobile-friendly When2meet</div>
+    </header>
+    <section class="card card-secondary">
+  <h2>Sign in</h2>
+ <div id="g_id_onload"
+     data-client_id="889787397602-gku8r94alb2b10s9lm35e2s2irbdntoq.apps.googleusercontent.com"
+     data-context="signin"
+     data-callback="handleGoogleCredentialResponse"
+     data-auto_prompt="false">
+</div>
+  <div class="g_id_signin"
+       data-type="standard"
+       data-size="large"
+       data-theme="outline"
+       data-text="sign_in_with"
+       data-shape="pill"
+       data-logo_alignment="left">
+  </div>
+  <p class="helper-text">
+    Signing in will use your Google name automatically when filling polls.
+  </p>
+</section>
+
+    <main class="main">
+      <section class="card card-primary">
+        <h1>Create a new availability poll</h1>
+        <form id="create-event-form" class="form-grid">
+          <label>
+            Title
+            <input
+              type="text"
+              id="title"
+              placeholder="Project sync, rehearsal, group meeting..."
+              required
+            />
+          </label>
+
+          <div class="form-row">
+            <label>
+              Start date
+              <input type="date" id="start-date" required />
+            </label>
+
+            <label>
+              End date
+              <input type="date" id="end-date" required />
+            </label>
+          </div>
+
+          <div class="form-row">
+            <label>
+              Start time
+              <input type="time" id="start-time" required />
+            </label>
+
+            <label>
+              End time
+              <input type="time" id="end-time" required />
+            </label>
+          </div>
+
+          <label>
+            Slot length
+            <select id="slot-minutes">
+              <option value="15">15 minutes</option>
+              <option value="30" selected>30 minutes</option>
+              <option value="60">60 minutes</option>
+            </select>
+          </label>
+
+          <button type="submit" class="btn btn-primary">
+            Create poll
+          </button>
+        </form>
+        <p class="helper-text">
+          After creating, you’ll get a shareable link to send to everyone.
+        </p>
+      </section>
+
+      <section class="card card-secondary">
+        <h2>Join an existing poll</h2>
+        <div class="join-row">
+          <input
+            type="text"
+            id="event-id-input"
+            placeholder="Paste HSync link or code"
+          />
+          <button id="join-button" class="btn btn-outline">Join</button>
+        </div>
+        <p class="helper-text">
+          Paste the full HSync link, or just the short code at the end.
+        </p>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Designed with a Harvard Crimson theme.</span>
+    </footer>
+
+    <script src="main.js" defer></script>
+  </body>
+</html>
