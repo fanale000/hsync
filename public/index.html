@@ -7,12 +7,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="stylesheet" href="styles.css" />
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <!-- Flatpickr styles -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-
-<!-- Flatpickr script -->
-<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-
   </head>
   <body class="page page-home">
     <header class="topbar">
@@ -79,16 +73,14 @@
 
           <div class="form-row">
             <label>
-  Start time
-  <input type="text" id="start-time" class="time-picker" placeholder="Select time" required />
-</label>
+              Start time
+              <input type="time" id="start-time" required />
+            </label>
 
-<label>
-  End time
-  <input type="text" id="end-time" class="time-picker" placeholder="Select time" required />
-</label>
-
-
+            <label>
+              End time
+              <input type="time" id="end-time" required />
+            </label>
           </div>
 
           <label>
