@@ -16,6 +16,18 @@ function formatDateLabel(iso) {
     day: "numeric"
   });
 }
+// Convert "h:mm AM/PM" → "HH:MM" (24-hour format)
+function to24Hour(str) {
+  if (!str) return "";
+  const [time, ampm] = str.split(" ");
+  let [h, m] = time.split(":").map(Number);
+
+  if (ampm === "PM" && h !== 12) h += 12;
+  if (ampm === "AM" && h === 12) h = 0;
+
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
 // ---------- Theme helpers ----------
 function applyTheme(themePrefs) {
   const root = document.documentElement;
@@ -168,13 +180,16 @@ function initHomePage() {
     e.preventDefault();
 
     const title = document.getElementById("title").value.trim();
-    const startDate = document.getElementById("start-date").value;
-    const endDate = document.getElementById("end-date").value;
-    const startTime = document.getElementById("start-time").value;
-    const endTime = document.getElementById("end-time").value;
-    const slotMinutes = Number(
-      document.getElementById("slot-minutes").value || 30
-    );
+const startDate = document.getElementById("start-date").value;
+const endDate = document.getElementById("end-date").value;
+
+const startTimeRaw = document.getElementById("start-time").value;
+const endTimeRaw = document.getElementById("end-time").value;
+
+const startTime = to24Hour(startTimeRaw);
+const endTime = to24Hour(endTimeRaw);
+
+const slotMinutes = Number(document.getElementById("slot-minutes").value || 30);
 
     if (!title || !startDate || !endDate || !startTime || !endTime) {
       alert("Please fill out all fields.");
@@ -242,6 +257,21 @@ function initHomePage() {
       window.location.href = `/event.html?id=${encodeURIComponent(id)}`;
     });
   }
+  // Initialize Flatpickr time pickers
+flatpickr("#start-time", {
+  enableTime: true,
+  noCalendar: true,
+  dateFormat: "h:i K",   // 12-hour with AM/PM
+  minuteIncrement: 15
+});
+
+flatpickr("#end-time", {
+  enableTime: true,
+  noCalendar: true,
+  dateFormat: "h:i K",
+  minuteIncrement: 15
+});
+
 }
 
 // ---------- Event page (grid + availability) ----------
