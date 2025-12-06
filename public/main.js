@@ -780,3 +780,162 @@ function getLastJoinedEvent() {
     return null;
   }
 }
+
+// small helper: decode JWT payload (id_token) to extract name/picture
+function parseJwt(token) {
+  try {
+    const payload = token.split(".")[1];
+    const json = atob(payload.replace(/-/g, "+").replace(/_/g, "/"));
+    return JSON.parse(decodeURIComponent(escape(json)));
+  } catch (e) {
+    return null;
+  }
+}
+
+// update topbar UI with profile picture and name badge
+function setTopbarProfile(pictureUrl, name) {
+  try {
+    const pic = $("#topbar-profile-pic");
+    const gsi = $("#gsi-topbar");
+    if (pictureUrl && pic) {
+      pic.src = pictureUrl;
+      pic.style.display = "inline-block";
+    } else if (pic) {
+      pic.style.display = "none";
+      pic.src = "";
+    }
+    // hide GSI button after sign-in (user can still sign out later if you add that)
+    if (gsi) gsi.style.display = pictureUrl ? "none" : "inline-flex";
+
+    // persist for other pages
+    try {
+      if (pictureUrl) localStorage.setItem("hsync:profilePic", pictureUrl);
+      else localStorage.removeItem("hsync:profilePic");
+      if (name) localStorage.setItem("hsync:profileName", name);
+    } catch (e) {}
+  } catch (e) {
+    console.warn("setTopbarProfile error", e);
+  }
+}
+
+// render GSI button in the topbar if available
+function initTopbarGsi() {
+  const container = $("#gsi-topbar");
+  if (!container || !window.google || !google.accounts || !google.accounts.id) return;
+  // ensure callback is initialized (callback function handleGoogleCredentialResponse exists)
+  google.accounts.id.initialize({
+    client_id: GOOGLE_CLIENT_ID,
+    callback: window.handleGoogleCredentialResponse,
+    auto_select: false,
+  });
+  // render a small icon-style button next to the brand
+  google.accounts.id.renderButton(container, {
+    type: "icon",
+    theme: "outline",
+    size: "small",
+    shape: "circle",
+    logo_alignment: "left",
+  });
+  // do not auto prompt here
+}
+
+// ensure persisted profile pic/name is applied on load
+try {
+  const savedPic = localStorage.getItem("hsync:profilePic");
+  const savedName = localStorage.getItem("hsync:profileName");
+  if (savedPic || savedName) {
+    // apply after DOMContentLoaded to ensure elements exist
+    document.addEventListener("DOMContentLoaded", () => {
+      setTopbarProfile(savedPic, savedName);
+    });
+  } else {
+    // still try to init GSI button after DOM ready
+    document.addEventListener("DOMContentLoaded", () => {
+      initTopbarGsi();
+    });
+  }
+} catch (e) {
+  // ignore storage errors
+}
+
+// enhance existing Google credential handler to update topbar profile
+const _oldHandle = window.handleGoogleCredentialResponse;
+window.handleGoogleCredentialResponse = async (response) => {
+  try {
+    // preserve previous behavior
+    if (typeof _oldHandle === "function") await _oldHandle(response);
+  } catch (e) {
+    // continue — we still want to update the UI below
+    console.warn("old handle error", e);
+  }
+
+  // decode id token for basic profile fields (if present)
+  try {
+    const payload = parseJwt(response?.credential);
+    const pic = payload?.picture || payload?.avatar_url || null;
+    const name = payload?.name || payload?.given_name || null;
+    if (pic || name) {
+      setTopbarProfile(pic, name);
+    } else {
+      // try to fetch profile via token if you obtain an access token elsewhere
+    }
+  } catch (e) {
+    console.warn("Could not parse id token for profile:", e);
+  }
+};
+
+// ensure the topbar GSI is rendered on pages that load current user and theme
+// keep consistent with existing boot sequence
+document.addEventListener("DOMContentLoaded", () => {
+  // attempt to render topbar button whenever DOM ready and google lib loaded
+  setTimeout(() => {
+    initTopbarGsi();
+  }, 200);
+});
+
+// sign out helper: clear local state, notify backend, and disable GSI auto-select
+async function signOutAllGoogle() {
+  try {
+    // disable auto sign-in selection for GSI
+    if (window.google && google.accounts && google.accounts.id && typeof google.accounts.id.disableAutoSelect === "function") {
+      google.accounts.id.disableAutoSelect();
+    }
+  } catch (e) {
+    console.warn("disableAutoSelect failed", e);
+  }
+
+  try {
+    // best-effort: call backend logout to clear server session/cookies (if implemented)
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+  } catch (e) {
+    console.warn("backend logout failed", e);
+  }
+
+  try {
+    // clear stored profile and event keys
+    localStorage.removeItem("hsync:profilePic");
+    localStorage.removeItem("hsync:profileName");
+    localStorage.removeItem("hsync:lastOpenedEvent");
+    localStorage.removeItem("hsync:lastJoinedEvent");
+  } catch (e) {}
+
+  try {
+    // update UI immediately if helper exists
+    if (typeof setTopbarProfile === "function") setTopbarProfile(null, null);
+  } catch (e) {}
+
+  // reload to ensure app state is clean
+  window.location.reload();
+}
+
+// wire logout button when DOM is ready (only present on homepage)
+document.addEventListener("DOMContentLoaded", () => {
+  const logoutBtn = document.getElementById("logout-all-google");
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      if (!confirm("Sign out of Google and clear saved profile info?")) return;
+      signOutAllGoogle();
+    });
+  }
+});
