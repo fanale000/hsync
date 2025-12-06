@@ -115,16 +115,27 @@ window.handleGoogleCredentialResponse = async (response) => {
 
     console.log("Signed in as", user);
 
-    // If we’re on a page with a name field, fill it in
+    // Fill in name field if present
     const nameInput = document.getElementById("participant-name");
     if (nameInput && user && user.name) {
       nameInput.value = user.name;
     }
 
-    // You could also show a little “Signed in as X” badge somewhere on the page
+    // Show badge
     const badge = document.getElementById("signed-in-user");
     if (badge && user && user.name) {
       badge.textContent = `Signed in as ${user.name}`;
+    }
+
+    // If on event page, overlay calendar automatically
+    if (document.body.classList.contains("page-event")) {
+      const overlayStatus = document.getElementById("calendar-overlay-status");
+      if (overlayStatus && typeof loadCalendarOverlayForCurrentEvent === "function") {
+        // Wait a tick for eventData to load if needed
+        setTimeout(() => {
+          loadCalendarOverlayForCurrentEvent(overlayStatus);
+        }, 500);
+      }
     }
   } catch (err) {
     console.error(err);
