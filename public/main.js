@@ -104,11 +104,45 @@ window.handleGoogleCredentialResponse = async (response) => {
     if (nameInput && user?.name) nameInput.value = user.name;
     const badge = $("#signed-in-user");
     if (badge) badge.textContent = user?.name ? `Signed in as ${user.name}` : "Signed in";
+
+    // Attempt to obtain Calendar access immediately after sign-in so
+    // a single sign-in covers both identity (name) and calendar overlay.
+    async function sendCalendarTokenToBackend(accessToken) {
+      try {
+        await fetchJson("/api/auth/google_calendar", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accessToken }),
+        });
+      } catch (err) {
+        // non-fatal: backend may not support storing calendar tokens
+        console.warn("Failed to send calendar access token to backend:", err);
+      }
+    }
+
     if (document.body.classList.contains("page-event") && typeof loadCalendarOverlayForCurrentEvent === "function") {
-      setTimeout(() => {
+      // Request calendar access token (this may prompt consent if needed).
+      try {
+        const accessToken = await getCalendarAccessToken().catch((e) => { throw e; });
+        if (accessToken) {
+          // Optional: send to backend for server-side requests / refresh handling
+          await sendCalendarTokenToBackend(accessToken).catch(() => {});
+          // Immediately apply overlay now that we have an access token
+          const status = $("#calendar-overlay-status");
+          if (status) {
+            // loadCalendarOverlayForCurrentEvent will call the Calendar API using
+            // the token-client (getCalendarAccessToken) internally; calling it here
+            // ensures the overlay is applied as soon as possible.
+            loadCalendarOverlayForCurrentEvent(status);
+          }
+        }
+      } catch (err) {
+        // User may have denied calendar consent or token client not ready.
+        // Keep the signed-in state (name) while letting the user opt-in later.
+        console.warn("Calendar access not granted or failed to obtain token:", err);
         const status = $("#calendar-overlay-status");
-        if (status) loadCalendarOverlayForCurrentEvent(status);
-      }, 500);
+        if (status) status.textContent = "Calendar overlay not enabled (grant access to use).";
+      }
     }
   } catch (err) {
     console.error(err);
