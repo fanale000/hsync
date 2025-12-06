@@ -391,6 +391,67 @@ function initEventPage() {
   let cellsByIndex = new Map();
   let mySlots = new Set(JSON.parse(safeGet(mySlotsKey) || "[]").map(Number));
   let calendarBusy = new Set();
+  // map slotIndex -> array of calendar event objects (used for hover tooltip)
+  let calendarEventsBySlot = new Map();
+
+  // Tooltip element (lazy-created)
+  let _calendarTooltip = null;
+  function createCalendarTooltip() {
+    if (_calendarTooltip) return _calendarTooltip;
+    _calendarTooltip = document.createElement("div");
+    _calendarTooltip.className = "calendar-tooltip";
+    _calendarTooltip.style.position = "fixed";
+    _calendarTooltip.style.zIndex = 9999;
+    _calendarTooltip.style.display = "none";
+    document.body.appendChild(_calendarTooltip);
+    return _calendarTooltip;
+  }
+
+  function formatEventForTooltip(ev) {
+    // ev: { summary, start, end, location, description }
+    const start = ev.start ? new Date(ev.start).toLocaleString() : "";
+    const end = ev.end ? new Date(ev.end).toLocaleString() : "";
+    const time = start && end ? `${start} — ${end}` : start || end || "";
+    const loc = ev.location ? `<div class="cal-ev-loc">${escapeHtml(ev.location)}</div>` : "";
+    const desc = ev.description ? `<div class="cal-ev-desc">${escapeHtml(ev.description)}</div>` : "";
+    return `<div class="cal-ev">
+        <div class="cal-ev-title">${escapeHtml(ev.summary || "(no title)")}</div>
+        <div class="cal-ev-time">${escapeHtml(time)}</div>
+        ${loc}
+        ${desc}
+      </div>`;
+  }
+
+  function escapeHtml(s) {
+    return String(s || "").replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+  }
+
+  function showCalendarTooltipForSlot(idx, cell) {
+    const events = calendarEventsBySlot.get(idx);
+    if (!events || !events.length) return;
+    const tip = createCalendarTooltip();
+    tip.innerHTML = events.map(formatEventForTooltip).join("<hr/>");
+    tip.style.display = "block";
+    // position: prefer above cell, else below
+    const rect = cell.getBoundingClientRect();
+    const padding = 8;
+    const maxW = Math.min(360, Math.max(180, rect.width * 2));
+    tip.style.maxWidth = maxW + "px";
+    // try above
+    let top = rect.top - tip.offsetHeight - padding;
+    if (top < 6) top = rect.bottom + padding; // fallback below
+    // horizontal center
+    let left = rect.left + (rect.width / 2) - (tip.offsetWidth / 2);
+    // clamp
+    left = Math.max(6, Math.min(left, window.innerWidth - tip.offsetWidth - 6));
+    tip.style.top = `${top}px`;
+    tip.style.left = `${left}px`;
+  }
+
+  function hideCalendarTooltip() {
+    if (!_calendarTooltip) return;
+    _calendarTooltip.style.display = "none";
+  }
 
   if (safeGet(myNameKey) && participantName) participantName.value = safeGet(myNameKey);
   if (shareEl) shareEl.value = window.location.href;
@@ -437,6 +498,18 @@ function initEventPage() {
     cell.addEventListener("pointerenter", () => {
       if (!isDown || !dragMode) return;
       toggleSlot(Number(cell.dataset.index), dragMode === "add");
+    });
+    // show calendar event details on hover if this slot has busy events
+    cell.addEventListener("mouseenter", (ev) => {
+      const idx = Number(cell.dataset.index);
+      if (calendarEventsBySlot.has(idx)) {
+        // small delay to avoid flicker while dragging
+        cell._calendarHoverTimeout = setTimeout(() => showCalendarTooltipForSlot(idx, cell), 180);
+      }
+    });
+    cell.addEventListener("mouseleave", () => {
+      clearTimeout(cell._calendarHoverTimeout);
+      hideCalendarTooltip();
     });
   }
 
@@ -605,18 +678,33 @@ function initEventPage() {
       const data = await resp.json();
       const ranges = buildSlotRanges();
       calendarBusy.clear();
+      calendarEventsBySlot.clear();
       for (const ev of (data.items || [])) {
         const s = new Date(ev.start?.dateTime || (ev.start?.date + "T00:00:00")).getTime();
         const e = new Date(ev.end?.dateTime || (ev.end?.date + "T23:59:59")).getTime();
-        ranges.forEach((r, idx) => { if (r && r.start < e && r.end > s) calendarBusy.add(idx); });
+        ranges.forEach((r, idx) => {
+          if (r && r.start < e && r.end > s) {
+            calendarBusy.add(idx);
+            const list = calendarEventsBySlot.get(idx) || [];
+            list.push({
+              summary: ev.summary || "",
+              start: ev.start?.dateTime || ev.start?.date,
+              end: ev.end?.dateTime || ev.end?.date,
+              location: ev.location || "",
+              description: ev.description || "",
+              raw: ev,
+            });
+            calendarEventsBySlot.set(idx, list);
+          }
+        });
       }
-      // apply to DOM
-      cellsByIndex.forEach((cell, idx) => {
-        cell.classList.toggle("busy-calendar", calendarBusy.has(idx));
-      });
-      if (statusEl) statusEl.textContent = `Overlay applied from ${(data.items||[]).length} event(s).`;
-      // optionally send token to backend
-      sendCalendarAccessTokenToBackend(token).catch(() => {});
+       // apply to DOM
+       cellsByIndex.forEach((cell, idx) => {
+         cell.classList.toggle("busy-calendar", calendarBusy.has(idx));
+       });
+       if (statusEl) statusEl.textContent = `Overlay applied from ${(data.items||[]).length} event(s).`;
+       // optionally send token to backend
+       sendCalendarAccessTokenToBackend(token).catch(() => {});
     } catch (e) {
       console.error(e);
       if (statusEl) statusEl.textContent = e.message || "Failed to load calendar overlay.";

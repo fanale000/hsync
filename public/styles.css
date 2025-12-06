@@ -490,6 +490,14 @@ select:focus {
   pointer-events: none;
 }
 
+/* Calendar busy cell styling (striped) */
+.grid-cell.busy-calendar {
+  background-image: linear-gradient(135deg, rgba(255,255,255,0.06) 25%, transparent 25%, transparent 50%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.06) 75%, transparent 75%, transparent);
+  background-size: 10px 10px;
+  position: relative;
+  cursor: pointer;
+}
+
 .calendar-overlay-row {
   margin-top: 0.4rem;
   display: flex;
@@ -560,6 +568,30 @@ select:focus {
   color: var(--text-muted);
   padding: 0.75rem 1.25rem 1rem;
   text-align: center;
+}
+
+/* Tooltip for calendar events */
+.calendar-tooltip {
+  background: rgba(30, 30, 30, 0.94);
+  color: #fff;
+  padding: 10px;
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.4);
+  font-size: 13px;
+  line-height: 1.3;
+  max-width: 360px;
+  overflow: hidden;
+}
+.calendar-tooltip .cal-ev { margin-bottom: 6px; }
+.calendar-tooltip .cal-ev-title { font-weight: 600; margin-bottom: 4px; }
+.calendar-tooltip .cal-ev-time { font-size: 12px; color: rgba(255,255,255,0.85); margin-bottom: 4px; }
+.calendar-tooltip .cal-ev-loc, .calendar-tooltip .cal-ev-desc { font-size: 12px; color: rgba(255,255,255,0.75); margin-bottom: 4px; }
+
+/* small separator inside tooltip */
+.calendar-tooltip hr {
+  border: none;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  margin: 8px 0;
 }
 
 /* Responsive */
