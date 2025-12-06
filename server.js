@@ -11,13 +11,35 @@ const GOOGLE_CLIENT_ID =
   "19747295970-tp902n56girks9e8kegdl1vlod13l3ti.apps.googleusercontent.com";
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
+// Generate secure session keys if not provided via environment variables
+// In production, set SESSION_KEYS as a comma-separated list of at least 32-byte random strings
+function getSessionKeys() {
+  const envKeys = process.env.SESSION_KEYS;
+  if (envKeys) {
+    return envKeys.split(",").map((k) => k.trim()).filter(Boolean);
+  }
+  // Fallback: generate keys at startup (not ideal for production with multiple instances)
+  // This ensures security even if env vars aren't set, but keys will change on restart
+  console.warn(
+    "WARNING: SESSION_KEYS not set. Generating temporary keys. " +
+    "Set SESSION_KEYS environment variable for production use."
+  );
+  return [
+    crypto.randomBytes(32).toString("hex"),
+    crypto.randomBytes(32).toString("hex"),
+  ];
+}
+
 const app = express();
 app.use(express.json());
 app.use(
   cookieSession({
     name: "hsync_session",
-    keys: ["a-very-secret-key-1", "a-very-secret-key-2"], // replace in real app
+    keys: getSessionKeys(),
     maxAge: 7 * 24 * 60 * 60 * 1000, // 1 week
+    secure: process.env.NODE_ENV === "production", // Only send over HTTPS in production
+    httpOnly: true, // Prevent XSS attacks
+    sameSite: "lax", // CSRF protection
   }),
 );
 
@@ -85,6 +107,23 @@ function computeAggregate(event) {
   return { aggregate, who, maxCount, slotsPerDay };
 }
 
+// Input validation helpers
+function validateTitle(title) {
+  if (!title || typeof title !== "string") return false;
+  const trimmed = title.trim();
+  if (trimmed.length === 0 || trimmed.length > 200) return false;
+  // Allow reasonable characters for event titles
+  return /^[\p{L}\p{N}\p{P}\p{Z}]+$/u.test(trimmed);
+}
+
+function validateParticipantName(name) {
+  if (!name || typeof name !== "string") return false;
+  const trimmed = name.trim();
+  if (trimmed.length === 0 || trimmed.length > 100) return false;
+  // Allow reasonable characters for names
+  return /^[\p{L}\p{N}\p{P}\p{Z}]+$/u.test(trimmed);
+}
+
 // Create event
 app.post("/api/events", (req, res) => {
   const { title, startDate, endDate, startTime, endTime, slotMinutes } =
@@ -99,6 +138,12 @@ app.post("/api/events", (req, res) => {
     !slotMinutes
   ) {
     return res.status(400).json({ error: "Missing required fields." });
+  }
+
+  if (!validateTitle(title)) {
+    return res.status(400).json({
+      error: "Invalid title. Must be 1-200 characters and contain only valid characters.",
+    });
   }
 
   const dates = [];
@@ -146,7 +191,12 @@ app.post("/api/events", (req, res) => {
 
 // Get event + aggregated availability
 app.get("/api/events/:id", (req, res) => {
-  const event = events[req.params.id];
+  const eventId = req.params.id;
+  // Validate event ID format (should be hex string, max 32 chars for safety)
+  if (!eventId || typeof eventId !== "string" || eventId.length > 32 || !/^[a-f0-9]+$/i.test(eventId)) {
+    return res.status(400).json({ error: "Invalid event ID format." });
+  }
+  const event = events[eventId];
   if (!event) {
     return res.status(404).json({ error: "Event not found." });
   }
@@ -181,7 +231,12 @@ app.get("/api/events/:id", (req, res) => {
 
 // Save / update a participant's availability
 app.post("/api/events/:id/availability", (req, res) => {
-  const event = events[req.params.id];
+  const eventId = req.params.id;
+  // Validate event ID format (should be hex string, max 32 chars for safety)
+  if (!eventId || typeof eventId !== "string" || eventId.length > 32 || !/^[a-f0-9]+$/i.test(eventId)) {
+    return res.status(400).json({ error: "Invalid event ID format." });
+  }
+  const event = events[eventId];
   if (!event) {
     return res.status(404).json({ error: "Event not found." });
   }
@@ -191,9 +246,17 @@ app.post("/api/events/:id/availability", (req, res) => {
     return res.status(400).json({ error: "Invalid payload." });
   }
 
+  if (!validateParticipantName(participantName)) {
+    return res.status(400).json({
+      error: "Invalid name. Must be 1-100 characters and contain only valid characters.",
+    });
+  }
+
   const cleanedName = participantName.trim();
-  if (!cleanedName) {
-    return res.status(400).json({ error: "Name is required." });
+  
+  // Validate slots array
+  if (slots.length > 10000) {
+    return res.status(400).json({ error: "Too many slots selected." });
   }
 
   const totalMinutes = event.endTimeMinutes - event.startTimeMinutes;

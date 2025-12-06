@@ -621,7 +621,15 @@ function initEventPage() {
     } else {
       items.slice(0, 5).forEach((s) => {
         const li = document.createElement("li");
-        li.innerHTML = `<div class="best-slot-main"><span>${(new Date(eventData.dates[s.day] + "T00:00:00")).toLocaleDateString(undefined,{ weekday:"short", month:"numeric", day:"numeric" })} @ ${eventData.times[s.row]}</span><span>${s.count} available</span></div>`;
+        const mainDiv = document.createElement("div");
+        mainDiv.className = "best-slot-main";
+        const dateSpan = document.createElement("span");
+        dateSpan.textContent = `${(new Date(eventData.dates[s.day] + "T00:00:00")).toLocaleDateString(undefined,{ weekday:"short", month:"numeric", day:"numeric" })} @ ${eventData.times[s.row]}`;
+        const countSpan = document.createElement("span");
+        countSpan.textContent = `${s.count} available`;
+        mainDiv.appendChild(dateSpan);
+        mainDiv.appendChild(countSpan);
+        li.appendChild(mainDiv);
         const p = document.createElement("div");
         p.className = "best-slot-participants";
         if (!s.names.length) p.textContent = "No one has picked this time yet.";
