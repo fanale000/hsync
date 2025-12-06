@@ -243,7 +243,14 @@ function initHomePage() {
         alert("Could not find an event id in that link.");
         return;
       }
-      window.location.href = `/event.html?id=${encodeURIComponent(id)}`;
+
+      // Save which poll the user joined for quick access, then open the Join tab (join.html).
+      try {
+        localStorage.setItem("hsync:lastJoinedEvent", id);
+      } catch (e) {
+        // ignore storage errors
+      }
+      window.location.href = `/join.html?id=${encodeURIComponent(id)}`;
     });
   }
 }
@@ -644,6 +651,59 @@ function initEventPage() {
   window.loadCalendarOverlayForCurrentEvent = loadCalendarOverlayForCurrentEvent;
 }
 
+// ---------- Join page ----------
+function initJoinPage() {
+  const input = $("#join-event-input");
+  const openBtn = $("#join-open-button");
+  const msg = $("#join-saved-msg");
+  const queryId = getQueryParam("id");
+
+  const saveAndReport = (id) => {
+    try {
+      localStorage.setItem("hsync:lastJoinedEvent", id);
+    } catch (e) {}
+    if (msg) msg.textContent = `Saved poll ${id}. Click "Open poll" to go to it.`;
+  };
+
+  // If the page was opened with ?id=..., save it and prefill
+  if (queryId) {
+    if (input) input.value = queryId;
+    saveAndReport(queryId);
+  } else {
+    // Otherwise prefill from last saved join if available
+    try {
+      const last = localStorage.getItem("hsync:lastJoinedEvent");
+      if (last && input) input.value = last;
+      if (last && msg) msg.textContent = `Last saved poll: ${last}`;
+    } catch (e) {}
+  }
+
+  openBtn && openBtn.addEventListener("click", () => {
+    const raw = (input && input.value.trim()) || "";
+    if (!raw) return;
+    let id = raw;
+    try {
+      const maybeUrl = new URL(raw);
+      const match = maybeUrl.searchParams.get("id");
+      if (match) id = match;
+      else {
+        const parts = maybeUrl.pathname.split("/");
+        id = parts[parts.length - 1] || parts[parts.length - 2] || "";
+        if (id === "event.html") id = maybeUrl.searchParams.get("id") || "";
+      }
+    } catch {
+      // plain id
+    }
+    if (!id) {
+      alert("Could not find an event id in that link.");
+      return;
+    }
+    saveAndReport(id);
+    // navigate to the actual event
+    window.location.href = `/event.html?id=${encodeURIComponent(id)}`;
+  });
+}
+
 // ---------- Boot ----------
 document.addEventListener("DOMContentLoaded", () => {
   if (document.body.classList.contains("page-home")) {
@@ -651,6 +711,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   if (document.body.classList.contains("page-event")) {
     loadCurrentUserAndTheme().then(initEventPage);
+  }
+  if (document.body.classList.contains("page-join")) {
+    loadCurrentUserAndTheme().then(initJoinPage);
   }
   if (document.body.classList.contains("page-appearance")) {
     initAppearancePage();
