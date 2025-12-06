@@ -764,7 +764,20 @@ function initEventPage() {
   window.loadCalendarOverlayForCurrentEvent = loadCalendarOverlayForCurrentEvent;
 
   // initial load
-  loadEvent();
+  loadEvent().then(() => {
+    // Auto-apply calendar overlay if a valid session-scoped calendar token is cached.
+    // This avoids prompting the user or requiring them to click the overlay button.
+    try {
+      const raw = sessionStorage.getItem(CAL_TOKEN_KEY);
+      if (raw) {
+        const obj = JSON.parse(raw);
+        // only auto-apply when token still valid (1 minute safety margin)
+        if (obj?.access_token && obj?.expires_at && Date.now() < obj.expires_at - 60000) {
+          loadCalendarOverlayForCurrentEvent(overlayStatus);
+        }
+      }
+    } catch (e) { /* non-fatal */ }
+  });
 }
 
 /* Appearance page (kept minimal) */
