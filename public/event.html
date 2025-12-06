@@ -21,7 +21,6 @@
       <nav class="topbar-nav">
         <a href="index.html" class="topbar-link">Home</a>
         <a href="join.html" class="topbar-link">Join</a>
-        <a href="event.html" class="topbar-link topbar-link--active">Event</a>
         <a href="appearance.html" class="topbar-link">Appearance</a>
       </nav>
     </header>
@@ -29,60 +28,62 @@
     <main class="main main-event">
       <section class="card card-primary">
         <div class="event-meta">
-          <!-- left column: share + calendar info -->
-          <div class="meta-left">
-            <div class="share-row">
-              <label class="share-label">
-                Share this link with others:
-                <input
-                  type="text"
-                  id="share-link"
-                  readonly
-                  onclick="this.select()"
-                />
-              </label>
-            </div>
+          <div class="share-row">
+            <label class="share-label">
+              Share this link with others:
+              <input
+                type="text"
+                id="share-link"
+                readonly
+                onclick="this.select()"
+              />
+            </label>
+          </div>
+          <div class="participant-row">
+            <div
+              id="g_id_onload"
+              data-client_id="19747295970-tp902n56girks9e8kegdl1vlod13l3ti.apps.googleusercontent.com"
+              data-context="signin"
+              data-callback="handleGoogleCredentialResponse"
+              data-auto_prompt="false"
+            ></div>
 
-            <div class="calendar-overlay-row">
-              <h4 class="small-heading">Calendar overlay</h4>
-              <p class="helper-text" style="margin-bottom:8px;">
-                Overlay your Google Calendar to see conflicts while choosing times.
-              </p>
-              <div style="display:flex; gap:8px; align-items:center;">
-                <button id="load-calendar-overlay" class="btn btn-ghost">
-                  Overlay my Google Calendar
-                </button>
-                <p id="calendar-overlay-status" class="helper-text" style="margin:0;"></p>
-              </div>
-            </div>
+            <div
+              class="g_id_signin"
+              data-type="icon"
+              data-size="medium"
+              data-theme="outline"
+              data-text="signin"
+              data-shape="circle"
+              data-logo_alignment="left"
+            ></div>
+
+            <label>
+              Your name
+              <input
+                type="text"
+                id="participant-name"
+                placeholder="e.g. Emma, Alex, Chris"
+              />
+            </label>
+            <button id="save-availability" class="btn btn-primary">
+              Save my availability
+            </button>
+            <button id="clear-availability" class="btn btn-ghost">
+              Clear mine
+            </button>
+          </div>
+          <div class="calendar-overlay-row">
+            <button id="load-calendar-overlay" class="btn btn-ghost">
+              Overlay my Google Calendar
+            </button>
+            <p id="calendar-overlay-status" class="helper-text"></p>
           </div>
 
-          <!-- right column: participant input + actions -->
-          <div class="meta-right">
-            <div class="participant-row">
-              <label class="name-label">
-                <div class="small-heading">Your name</div>
-                <input
-                  type="text"
-                  id="participant-name"
-                  placeholder="e.g. Emma, Alex, Chris"
-                />
-              </label>
-
-              <div class="btn-row" aria-hidden="false">
-                <button id="save-availability" class="btn btn-primary">
-                  Save my availability
-                </button>
-                <button id="clear-availability" class="btn btn-ghost">
-                  Clear mine
-                </button>
-              </div>
-            </div>
-
-            <p class="helper-text" style="margin-top:12px;">
-              Tip: drag across the grid to select multiple times on touch or mouse, or use the range selector below.
-            </p>
-          </div>
+          <p class="helper-text">
+            Tip: drag across the grid to select multiple times on touch or
+            mouse, or use the range selector below.
+          </p>
         </div>
       </section>
 
