@@ -481,15 +481,39 @@ select:focus {
 
 .best-slots-list li {
   font-size: 0.85rem;
-  padding: 0.35rem 0.5rem;
-  border-radius: 999px;
+  padding: 0.45rem 0.7rem;
+  border-radius: 0.9rem;
   background: #f9fafb;
   border: 1px solid #e5e7eb;
   margin-bottom: 0.3rem;
   display: flex;
-  justify-content: space-between;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 0.25rem;
 }
+.best-slot-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.best-slot-participants {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.participant-dropdown {
+  font-size: 0.8rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-soft);
+  background: #ffffff;
+  outline: none;
+}
+
 
 /* Footer */
 

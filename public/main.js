@@ -479,7 +479,7 @@ function initEventPage() {
       toggleSlot(idx, true);
     }
   }
-  function renderBestSlots() {
+function renderBestSlots() {
   if (!eventData || !bestSlotsList || !participantCountEl) return;
 
   bestSlotsList.innerHTML = "";
@@ -493,6 +493,7 @@ function initEventPage() {
 
   const results = [];
 
+  // Build a list of all non-empty slots with counts + names
   for (let day = 0; day < days; day++) {
     for (let row = 0; row < rows; row++) {
       const count = (agg[row] && agg[row][day]) || 0;
@@ -512,9 +513,11 @@ function initEventPage() {
     }
   }
 
+  // Sort by most people available
   results.sort((a, b) => b.count - a.count);
 
   const top = results.slice(0, 5);
+
   if (top.length === 0) {
     const li = document.createElement("li");
     li.textContent = "No availability submitted yet.";
@@ -523,19 +526,53 @@ function initEventPage() {
     top.forEach((slot) => {
       const li = document.createElement("li");
 
-      const namesLabel =
-        slot.names && slot.names.length
-          ? slot.names.join(", ")
-          : "No one yet";
-
-      // This is the hover tooltip
-      li.title = `Available: ${namesLabel}`;
-
-      li.innerHTML = `
+      // First row: date/time and count
+      const mainRow = document.createElement("div");
+      mainRow.className = "best-slot-main";
+      mainRow.innerHTML = `
         <span>${formatDateLabel(slot.dateIso)} @ ${slot.timeLabel}</span>
         <span>${slot.count} available</span>
       `;
 
+      li.appendChild(mainRow);
+
+      // Second row: dropdown of participants
+      const participantsRow = document.createElement("div");
+      participantsRow.className = "best-slot-participants";
+
+      const names = slot.names && slot.names.length ? slot.names : [];
+
+      if (names.length === 0) {
+        const label = document.createElement("span");
+        label.textContent = "No one has picked this time yet.";
+        participantsRow.appendChild(label);
+      } else {
+        const label = document.createElement("span");
+        label.textContent = "Participants:";
+        participantsRow.appendChild(label);
+
+        const select = document.createElement("select");
+        select.className = "participant-dropdown";
+
+        // Placeholder option showing how many people
+        const placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = `${names.length} participant${names.length > 1 ? "s" : ""}`;
+        placeholder.disabled = true;
+        placeholder.selected = true;
+        select.appendChild(placeholder);
+
+        names.forEach((name) => {
+          const opt = document.createElement("option");
+          opt.value = name;
+          opt.textContent = name;
+          select.appendChild(opt);
+        });
+
+        participantsRow.appendChild(select);
+      }
+
+      li.appendChild(participantsRow);
       bestSlotsList.appendChild(li);
     });
   }
