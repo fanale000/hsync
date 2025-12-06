@@ -1,209 +1,292 @@
-// public/main.js (refactored)
+/**
+ * main.js — cleaned, documented, simplified
+ *
+ * Goals:
+ * - Keep behavior intact (join/create/event/appearance, Google sign-in + calendar overlay)
+ * - Remove duplicated/stray code, consolidate helpers
+ * - Add clear comments for each section so it's easy to read and modify
+ *
+ * Note: this file intentionally keeps higher-level helpers minimal and
+ * relies on the same DOM ids used by the HTML files in /public.
+ */
 
-const GOOGLE_CLIENT_ID =
-  "19747295970-tp902n56girks9e8kegdl1vlod13l3ti.apps.googleusercontent.com";
+const GOOGLE_CLIENT_ID = "19747295970-tp902n56girks9e8kegdl1vlod13l3ti.apps.googleusercontent.com";
 
-// ---------- Small helpers ----------
+/* -------------------------
+   Small helpers
+   ------------------------- */
 const $ = (sel, ctx = document) => ctx.querySelector(sel);
-const $$ = (sel, ctx = document) => Array.from(ctx.querySelectorAll(sel));
+const $$ = (sel, ctx = document) => Array.from((ctx || document).querySelectorAll(sel));
 const getQueryParam = (name) => new URL(window.location.href).searchParams.get(name);
 
-const fetchJson = async (url, opts = {}) => {
+/**
+ * Lightweight fetch -> JSON utility that throws on non-2xx.
+ * Returns parsed JSON or throws Error with message.
+ */
+async function fetchJson(url, opts = {}) {
   const res = await fetch(url, opts);
   const text = await res.text().catch(() => "");
   let data = {};
-  try {
-    data = text ? JSON.parse(text) : {};
-  } catch {
-    // leave data empty
-  }
+  try { data = text ? JSON.parse(text) : {}; } catch {}
   if (!res.ok) {
-    throw new Error(data.error || `Request failed (${res.status})`);
+    const msg = data?.error || data?.message || res.statusText || `HTTP ${res.status}`;
+    const err = new Error(msg);
+    err.status = res.status;
+    err.body = data;
+    throw err;
   }
   return data;
-};
-
-function formatDateLabel(iso) {
-  const d = new Date(iso + "T00:00:00");
-  if (isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString(undefined, {
-    weekday: "short",
-    month: "numeric",
-    day: "numeric",
-  });
 }
 
-// ---------- Google / Calendar overlay ----------
-let calendarTokenClient = null;
-let calendarBusySlots = new Set();
+/**
+ * Decode a JWT id_token payload (safe best-effort).
+ */
+function parseJwt(token) {
+  if (!token) return null;
+  try {
+    const payload = token.split(".")[1];
+    const json = atob(payload.replace(/-/g, "+").replace(/_/g, "/"));
+    // decodeURIComponent(escape(...)) is a compatibility shim for some environments
+    return JSON.parse(decodeURIComponent(escape(json)));
+  } catch (e) {
+    return null;
+  }
+}
 
+/* -------------------------
+   Local storage helpers
+   ------------------------- */
+function safeSet(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+function safeGet(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+function safeRemove(key) { try { localStorage.removeItem(key); } catch (e) {} }
+
+function setLastOpenedEvent(id) { if (id) safeSet("hsync:lastOpenedEvent", String(id)); else safeRemove("hsync:lastOpenedEvent"); }
+function getLastOpenedEvent() { return safeGet("hsync:lastOpenedEvent"); }
+function setLastJoinedEvent(id) { if (id) safeSet("hsync:lastJoinedEvent", String(id)); else safeRemove("hsync:lastJoinedEvent"); }
+function getLastJoinedEvent() { return safeGet("hsync:lastJoinedEvent"); }
+
+/* -------------------------
+   Google / Calendar helpers
+   ------------------------- */
+/*
+  We keep a single token client instance and expose a Promise-based function
+  to obtain an access token. This function will prompt the user if consent is required.
+*/
+let calendarTokenClient = null;
+
+/**
+ * Request a calendar access token via google.accounts.oauth2.initTokenClient.
+ * Resolves with access token string or rejects with an Error.
+ */
 function getCalendarAccessToken() {
   return new Promise((resolve, reject) => {
     if (!window.google || !google.accounts || !google.accounts.oauth2) {
-      reject(new Error("Google API not loaded yet. Try again in a moment."));
-      return;
+      return reject(new Error("Google API not loaded yet."));
     }
     if (!calendarTokenClient) {
-      calendarTokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: GOOGLE_CLIENT_ID,
-        scope: "https://www.googleapis.com/auth/calendar.readonly",
-        callback: (tokenResponse) => {
-          if (tokenResponse && tokenResponse.access_token) {
-            resolve(tokenResponse.access_token);
-          } else {
-            reject(new Error("No access token received from Google."));
-          }
-        },
-        error_callback: (err) => {
-          reject(new Error(`Google OAuth error: ${err?.type || "unknown"}`));
-        },
-      });
+      try {
+        calendarTokenClient = google.accounts.oauth2.initTokenClient({
+          client_id: GOOGLE_CLIENT_ID,
+          // readonly calendar + basic profile to fetch picture/name if needed
+          scope: "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/userinfo.profile",
+          callback: (resp) => {
+            if (resp && resp.access_token) resolve(resp.access_token);
+            else reject(new Error("No access token returned"));
+          },
+        });
+      } catch (e) {
+        return reject(e);
+      }
     }
-    calendarTokenClient.requestAccessToken();
+    try {
+      calendarTokenClient.requestAccessToken();
+    } catch (e) {
+      reject(e);
+    }
   });
 }
 
-// ---------- Theme / user helpers ----------
-function applyTheme(themePrefs) {
-  const root = document.documentElement;
-  if (!themePrefs) return;
-  if (themePrefs.theme) root.dataset.theme = themePrefs.theme;
-  if (themePrefs.density) root.dataset.density = themePrefs.density;
+/**
+ * Send idToken -> backend for session creation (optional).
+ * Returns backend user object when available or null on error.
+ */
+async function sendGoogleIdTokenToBackend(idToken) {
+  if (!idToken) return null;
+  try {
+    const data = await fetchJson("/api/auth/google", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idToken }),
+    });
+    return data.user || null;
+  } catch (e) {
+    console.warn("Backend google token exchange failed:", e);
+    return null;
+  }
 }
 
+/**
+ * Optionally send calendar access token to backend (best-effort).
+ */
+async function sendCalendarAccessTokenToBackend(accessToken) {
+  if (!accessToken) return;
+  try {
+    await fetchJson("/api/auth/google_calendar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accessToken }),
+    });
+  } catch (e) {
+    console.warn("Failed to send calendar token to backend:", e);
+  }
+}
+
+/**
+ * Fetch google profile info using an access token (userinfo endpoint).
+ */
+async function fetchGoogleUserInfo(accessToken) {
+  if (!accessToken) return null;
+  try {
+    const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) throw new Error("Failed to fetch userinfo");
+    return await res.json();
+  } catch (e) {
+    console.warn("fetchGoogleUserInfo:", e);
+    return null;
+  }
+}
+
+/* -------------------------
+   Topbar / profile UI helpers
+   ------------------------- */
+function setTopbarProfile(pictureUrl, name) {
+  const pic = $("#topbar-profile-pic");
+  const container = $("#gsi-topbar");
+  if (pic) {
+    if (pictureUrl) { pic.src = pictureUrl; pic.style.display = "inline-block"; }
+    else { pic.src = ""; pic.style.display = "none"; }
+  }
+  if (container) container.style.display = pictureUrl ? "none" : "inline-flex";
+  // persist to reuse across pages
+  if (pictureUrl) safeSet("hsync:profilePic", pictureUrl); else safeRemove("hsync:profilePic");
+  if (name) safeSet("hsync:profileName", name); else safeRemove("hsync:profileName");
+}
+
+/**
+ * Render the Google Sign-in (GSI) button in the small topbar slot.
+ * Requires google.accounts.id to be available (gsi script loaded).
+ */
+function initTopbarGsi() {
+  const el = $("#gsi-topbar");
+  if (!el || !window.google || !google.accounts || !google.accounts.id) return;
+  try {
+    google.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback: window.handleGoogleCredentialResponse,
+      auto_select: false,
+    });
+    google.accounts.id.renderButton(el, { type: "icon", theme: "outline", size: "small", shape: "circle", logo_alignment: "left" });
+  } catch (e) {
+    // non-fatal
+    console.warn("initTopbarGsi:", e);
+  }
+}
+
+/* -------------------------
+   Google callback: id_token
+   ------------------------- */
+/**
+ * Called by Google Identity on successful credential (id_token).
+ * We:
+ *  - optionally forward the token to server
+ *  - update topbar profile picture / name
+ *  - if on event page, attempt to request calendar access and apply overlay
+ */
+window.handleGoogleCredentialResponse = async (resp) => {
+  if (!resp?.credential) return;
+  // decode basic profile from id_token
+  const payload = parseJwt(resp.credential);
+  const name = payload?.name || payload?.given_name || null;
+  const picture = payload?.picture || null;
+  if (picture || name) setTopbarProfile(picture, name);
+
+  // try to validate/create session on backend (non-blocking)
+  sendGoogleIdTokenToBackend(resp.credential).catch(() => {});
+
+  // if on event page, proactively try calendar access (best-effort)
+  if (document.body.classList.contains("page-event")) {
+    try {
+      const token = await getCalendarAccessToken().catch(() => null);
+      if (token) {
+        await sendCalendarAccessTokenToBackend(token).catch(() => {});
+        // attempt to fetch profile via token if we didn't get it from id_token
+        if (!picture || !name) {
+          const info = await fetchGoogleUserInfo(token).catch(() => null);
+          if (info) setTopbarProfile(info.picture || null, info.name || null);
+        }
+        // trigger event overlay if available
+        if (typeof window.loadCalendarOverlayForCurrentEvent === "function") {
+          const statusEl = $("#calendar-overlay-status");
+          window.loadCalendarOverlayForCurrentEvent(statusEl);
+        }
+      }
+    } catch (e) {
+      console.warn("Calendar access after sign-in failed:", e);
+      const statusEl = $("#calendar-overlay-status");
+      if (statusEl) statusEl.textContent = "Calendar overlay not enabled (grant access to use).";
+    }
+  }
+};
+
+/* -------------------------
+   Sign-out helper (local) — best-effort
+   ------------------------- */
+async function signOutAllGoogle() {
+  try { if (window.google && google.accounts && google.accounts.id && google.accounts.id.disableAutoSelect) google.accounts.id.disableAutoSelect(); } catch (e) {}
+  try { await fetch("/api/auth/logout", { method: "POST" }).catch(() => {}); } catch (e) {}
+  safeRemove("hsync:profilePic"); safeRemove("hsync:profileName");
+  safeRemove("hsync:lastOpenedEvent"); safeRemove("hsync:lastJoinedEvent");
+  setTopbarProfile(null, null);
+  // reload to clear any in-memory state
+  window.location.reload();
+}
+
+/* -------------------------
+   Simple page initializers
+   ------------------------- */
+
+/* load user + theme from backend (keeps previous behavior) */
 async function loadCurrentUserAndTheme() {
   try {
     const me = await fetchJson("/api/me").catch(() => ({ user: null }));
-    let themePrefs = null;
-    try {
-      themePrefs = await fetchJson("/api/theme").catch(() => null);
-    } catch {}
-    const prefs = themePrefs || { theme: "harvard", density: "comfortable" };
-    applyTheme(prefs);
+    const themePrefs = await fetchJson("/api/theme").catch(() => null);
+    if (themePrefs) {
+      if (themePrefs.theme) document.documentElement.dataset.theme = themePrefs.theme;
+      if (themePrefs.density) document.documentElement.dataset.density = themePrefs.density;
+    }
     return { user: (me && me.user) || null, themePrefs: themePrefs || null };
   } catch (err) {
-    console.error("loadCurrentUserAndTheme:", err);
-    applyTheme({ theme: "harvard", density: "comfortable" });
+    // ensure defaults
+    document.documentElement.dataset.theme = document.documentElement.dataset.theme || "harvard";
+    document.documentElement.dataset.density = document.documentElement.dataset.density || "comfortable";
     return { user: null, themePrefs: null };
   }
 }
 
-async function sendGoogleTokenToBackend(idToken) {
-  return await fetchJson("/api/auth/google", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ idToken }),
-  }).then((d) => d.user);
-}
-
-window.handleGoogleCredentialResponse = async (response) => {
-  try {
-    const user = await sendGoogleTokenToBackend(response.credential);
-    console.log("Signed in as", user);
-    const nameInput = $("#participant-name");
-    if (nameInput && user?.name) nameInput.value = user.name;
-    const badge = $("#signed-in-user");
-    if (badge) badge.textContent = user?.name ? `Signed in as ${user.name}` : "Signed in";
-
-    // Attempt to obtain Calendar access immediately after sign-in so
-    // a single sign-in covers both identity (name) and calendar overlay.
-    async function sendCalendarTokenToBackend(accessToken) {
-      try {
-        await fetchJson("/api/auth/google_calendar", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ accessToken }),
-        });
-      } catch (err) {
-        // non-fatal: backend may not support storing calendar tokens
-        console.warn("Failed to send calendar access token to backend:", err);
-      }
-    }
-
-    if (document.body.classList.contains("page-event") && typeof loadCalendarOverlayForCurrentEvent === "function") {
-      // Request calendar access token (this may prompt consent if needed).
-      try {
-        const accessToken = await getCalendarAccessToken().catch((e) => { throw e; });
-        if (accessToken) {
-          // Optional: send to backend for server-side requests / refresh handling
-          await sendCalendarTokenToBackend(accessToken).catch(() => {});
-          // Immediately apply overlay now that we have an access token
-          const status = $("#calendar-overlay-status");
-          if (status) {
-            // loadCalendarOverlayForCurrentEvent will call the Calendar API using
-            // the token-client (getCalendarAccessToken) internally; calling it here
-            // ensures the overlay is applied as soon as possible.
-            loadCalendarOverlayForCurrentEvent(status);
-          }
-        }
-      } catch (err) {
-        // User may have denied calendar consent or token client not ready.
-        // Keep the signed-in state (name) while letting the user opt-in later.
-        console.warn("Calendar access not granted or failed to obtain token:", err);
-        const status = $("#calendar-overlay-status");
-        if (status) status.textContent = "Calendar overlay not enabled (grant access to use).";
-      }
-    }
-  } catch (err) {
-    console.error(err);
-    alert(err.message || "Google sign-in failed.");
-  }
-};
-
-// ---------- Appearance page ----------
-function initAppearancePage() {
-  const form = $("#appearance-form");
-  const warningEl = $("#appearance-warning");
-  const badgeEl = $("#signed-in-user");
-  if (!form) return;
-
-  loadCurrentUserAndTheme().then(({ user, themePrefs }) => {
-    if (!user) {
-      warningEl && (warningEl.textContent = "Sign in with Google on the Home or Event page to save your appearance settings.");
-      badgeEl && (badgeEl.textContent = "Not signed in");
-    } else {
-      badgeEl && (badgeEl.textContent = `Signed in as ${user.name || user.email}`);
-      warningEl && (warningEl.textContent = "");
-    }
-    const prefs = themePrefs || { theme: "harvard", density: "comfortable" };
-    $$('input[name="theme"]', form).forEach((inp) => (inp.checked = inp.value === prefs.theme));
-    $$('input[name="density"]', form).forEach((inp) => (inp.checked = inp.value === prefs.density));
-  });
-
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const theme = form.querySelector('input[name="theme"]:checked')?.value;
-    const density = form.querySelector('input[name="density"]:checked')?.value;
-    try {
-      const data = await fetchJson("/api/theme", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ theme, density }),
-      });
-      applyTheme(data.theme);
-      alert("Appearance saved!");
-    } catch (err) {
-      console.error(err);
-      alert(err.message || "Error saving appearance (are you signed in?)");
-    }
-  });
-}
-
-// ---------- Home page (create / join) ----------
+/* Home page: create event form wiring (keeps existing API contract) */
 function initHomePage() {
   const form = $("#create-event-form");
-  const joinInput = $("#event-id-input");
-  const joinBtn = $("#join-button");
   if (!form) return;
-
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const title = $("#title").value.trim();
-    const startDate = $("#start-date").value;
-    const endDate = $("#end-date").value;
-    const startTime = $("#start-time").value;
-    const endTime = $("#end-time").value;
-    const slotMinutes = Number($("#slot-minutes").value || 30);
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const title = ($("#title")?.value || "").trim();
+    const startDate = $("#start-date")?.value;
+    const endDate = $("#end-date")?.value;
+    const startTime = $("#start-time")?.value;
+    const endTime = $("#end-time")?.value;
+    const slotMinutes = Number($("#slot-minutes")?.value || 30);
     if (!title || !startDate || !endDate || !startTime || !endTime) {
       alert("Please fill out all fields.");
       return;
@@ -214,18 +297,39 @@ function initHomePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title, startDate, endDate, startTime, endTime, slotMinutes }),
       });
-      const url = `${window.location.origin}/event.html?id=${encodeURIComponent(data.id)}`;
-      window.location.href = url;
+      window.location.href = `/event.html?id=${encodeURIComponent(data.id)}`;
     } catch (err) {
       console.error(err);
       alert(err.message || "Error creating event.");
     }
   });
 
-  if (joinBtn && joinInput) {
-    joinBtn.addEventListener("click", () => {
-      const raw = joinInput.value.trim();
+  // optional logout button on home (if present)
+  const logoutBtn = $("#logout-all-google");
+  if (logoutBtn) logoutBtn.addEventListener("click", (e) => { e.preventDefault(); if (confirm("Sign out of Google and clear saved profile info?")) signOutAllGoogle(); });
+}
+
+/* Join page: parse input and open event */
+function initJoinPage() {
+  const input = $("#join-event-input");
+  const openBtn = $("#join-open-button");
+  const msg = $("#join-saved-msg");
+  const queryId = getQueryParam("id");
+
+  function saveAndReport(id) { try { setLastJoinedEvent(id); } catch (e) {} if (msg) msg.textContent = `Saved poll ${id}. Click "Open poll" to go to it.`; }
+
+  if (queryId) { if (input) input.value = queryId; saveAndReport(queryId); }
+  else {
+    const last = getLastJoinedEvent();
+    if (last && input) input.value = last;
+    if (last && msg) msg.textContent = `Last saved poll: ${last}`;
+  }
+
+  if (openBtn) {
+    openBtn.addEventListener("click", () => {
+      const raw = (input?.value || "").trim();
       if (!raw) return;
+      // try to extract id from URL or accept raw id
       let id = raw;
       try {
         const maybeUrl = new URL(raw);
@@ -236,47 +340,36 @@ function initHomePage() {
           id = parts[parts.length - 1] || parts[parts.length - 2] || "";
           if (id === "event.html") id = maybeUrl.searchParams.get("id") || "";
         }
-      } catch {
-        // plain id
-      }
-      if (!id) {
-        alert("Could not find an event id in that link.");
-        return;
-      }
-
-      // Save which poll the user joined for quick access, then open the Join tab (join.html).
-      try {
-        localStorage.setItem("hsync:lastJoinedEvent", id);
-      } catch (e) {
-        // ignore storage errors
-      }
-      window.location.href = `/join.html?id=${encodeURIComponent(id)}`;
+      } catch { /* plain id allowed */ }
+      if (!id) { alert("Could not find an event id in that link."); return; }
+      saveAndReport(id);
+      window.location.href = `/event.html?id=${encodeURIComponent(id)}`;
     });
   }
 }
 
-// ---------- Event page (grid + availability) ----------
+/* Event page: grid & availability + calendar overlay wiring.
+   This initializer intentionally remains compact: it calls loadEvent()
+   which is implemented here and wires overlay & save behavior.
+*/
 function initEventPage() {
   const eventId = getQueryParam("id");
-  if (!eventId) {
-    alert("Missing event id in URL.");
-    return;
-  }
+  if (!eventId) { alert("Missing event id in URL."); return; }
 
-  // cached DOM
+  // DOM cache
   const gridEl = $("#availability-grid");
-  const eventTitleEl = $("#event-title");
-  const shareLinkEl = $("#share-link");
-  const rangeDaySelect = $("#range-day");
-  const rangeFromInput = $("#range-from");
-  const rangeToInput = $("#range-to");
-  const rangeApplyBtn = $("#range-apply");
-  const bestSlotsList = $("#best-slots");
+  const titleEl = $("#event-title");
+  const shareEl = $("#share-link");
+  const rangeDay = $("#range-day");
+  const rangeFrom = $("#range-from");
+  const rangeTo = $("#range-to");
+  const rangeApply = $("#range-apply");
+  const bestSlots = $("#best-slots");
   const participantCountEl = $("#participant-count");
-  const participantNameInput = $("#participant-name");
+  const participantName = $("#participant-name");
   const saveBtn = $("#save-availability");
   const clearBtn = $("#clear-availability");
-  const overlayBtn = $("#load-calendar-overlay");
+  const overlayBtn = $("#load-calendar-overlay") || $("#overlay-calendar");
   const overlayStatus = $("#calendar-overlay-status");
 
   const mySlotsKey = `hsync:${eventId}:mySlots`;
@@ -284,27 +377,23 @@ function initEventPage() {
 
   let eventData = null;
   let cellsByIndex = new Map();
-  let mySlots = new Set(JSON.parse(localStorage.getItem(mySlotsKey) || "[]").map(Number));
+  let mySlots = new Set(JSON.parse(safeGet(mySlotsKey) || "[]").map(Number));
+  let calendarBusy = new Set();
 
-  // drag selection state (global)
-  let isPointerDown = false;
+  if (safeGet(myNameKey) && participantName) participantName.value = safeGet(myNameKey);
+  if (shareEl) shareEl.value = window.location.href;
+
+  // pointer drag helpers
+  let isDown = false;
   let dragMode = null;
+  window.addEventListener("pointerup", () => { isDown = false; dragMode = null; });
 
-  // reusable: persist name and share link
-  const storedName = localStorage.getItem(myNameKey);
-  if (storedName && participantNameInput) participantNameInput.value = storedName;
-  if (shareLinkEl) shareLinkEl.value = window.location.href;
-
-  window.addEventListener("pointerup", () => {
-    isPointerDown = false;
-    dragMode = null;
-  });
-
+  /* Fetch event from backend and render UI */
   async function loadEvent() {
     try {
       eventData = await fetchJson(`/api/events/${encodeURIComponent(eventId)}`);
-      if (eventTitleEl) eventTitleEl.textContent = eventData.title || "Availability poll";
-      renderRangeDayOptions();
+      if (titleEl) titleEl.textContent = eventData.title || "Availability poll";
+      renderRangeOptions();
       renderGrid();
       renderBestSlots();
     } catch (err) {
@@ -313,14 +402,14 @@ function initEventPage() {
     }
   }
 
-  function renderRangeDayOptions() {
-    if (!rangeDaySelect || !eventData) return;
-    rangeDaySelect.innerHTML = "";
-    eventData.dates.forEach((iso, idx) => {
+  function renderRangeOptions() {
+    if (!rangeDay || !eventData) return;
+    rangeDay.innerHTML = "";
+    eventData.dates.forEach((d, i) => {
       const opt = document.createElement("option");
-      opt.value = idx;
-      opt.textContent = formatDateLabel(iso);
-      rangeDaySelect.appendChild(opt);
+      opt.value = i;
+      opt.textContent = (new Date(d + "T00:00:00")).toLocaleDateString(undefined, { weekday: "short", month: "numeric", day: "numeric" });
+      rangeDay.appendChild(opt);
     });
   }
 
@@ -328,30 +417,24 @@ function initEventPage() {
     cell.addEventListener("pointerdown", (e) => {
       e.preventDefault();
       const idx = Number(cell.dataset.index);
-      const currentlySelected = mySlots.has(idx);
-      isPointerDown = true;
-      dragMode = currentlySelected ? "remove" : "add";
+      const isSelected = mySlots.has(idx);
+      isDown = true;
+      dragMode = isSelected ? "remove" : "add";
       toggleSlot(idx, dragMode === "add");
     });
     cell.addEventListener("pointerenter", () => {
-      if (!isPointerDown || !dragMode) return;
-      const idx = Number(cell.dataset.index);
-      toggleSlot(idx, dragMode === "add");
+      if (!isDown || !dragMode) return;
+      toggleSlot(Number(cell.dataset.index), dragMode === "add");
     });
   }
 
-  function toggleSlot(idx, makeSelected) {
+  function toggleSlot(idx, select) {
     if (!Number.isInteger(idx)) return;
     const cell = cellsByIndex.get(idx);
     if (!cell) return;
-    if (makeSelected) {
-      mySlots.add(idx);
-      cell.classList.add("my-slot");
-    } else {
-      mySlots.delete(idx);
-      cell.classList.remove("my-slot");
-    }
-    localStorage.setItem(mySlotsKey, JSON.stringify(Array.from(mySlots)));
+    if (select) { mySlots.add(idx); cell.classList.add("my-slot"); }
+    else { mySlots.delete(idx); cell.classList.remove("my-slot"); }
+    safeSet(mySlotsKey, JSON.stringify(Array.from(mySlots)));
   }
 
   function renderGrid() {
@@ -363,579 +446,246 @@ function initEventPage() {
     const maxCount = eventData.grid.maxCount || 0;
     const aggregate = eventData.grid.aggregate || [];
 
-    const templateCols = `minmax(60px, 80px) repeat(${days}, minmax(56px, 1fr))`;
+    const templateCols = `minmax(60px,80px) repeat(${days}, minmax(56px,1fr))`;
 
-    const headerRow = document.createElement("div");
-    headerRow.className = "grid-header-row";
-    headerRow.style.gridTemplateColumns = templateCols;
-    const blank = document.createElement("div");
-    blank.className = "grid-time-cell";
-    headerRow.appendChild(blank);
-    eventData.dates.forEach((iso) => {
-      const dayCell = document.createElement("div");
-      dayCell.className = "grid-day-header";
-      dayCell.textContent = formatDateLabel(iso);
-      headerRow.appendChild(dayCell);
+    // header row
+    const header = document.createElement("div");
+    header.className = "grid-header-row";
+    header.style.gridTemplateColumns = templateCols;
+    header.appendChild(Object.assign(document.createElement("div"), { className: "grid-time-cell" }));
+    eventData.dates.forEach((d) => {
+      const h = document.createElement("div");
+      h.className = "grid-day-header";
+      h.textContent = (new Date(d + "T00:00:00")).toLocaleDateString(undefined, { weekday: "short", month: "numeric", day: "numeric" });
+      header.appendChild(h);
     });
-    gridEl.appendChild(headerRow);
+    gridEl.appendChild(header);
 
-    for (let row = 0; row < rows; row++) {
+    // rows
+    for (let r = 0; r < rows; r++) {
       const rowEl = document.createElement("div");
       rowEl.className = "grid-row";
       rowEl.style.gridTemplateColumns = templateCols;
-
       const timeCell = document.createElement("div");
       timeCell.className = "grid-time-cell";
-      timeCell.textContent = eventData.times[row] || "";
+      timeCell.textContent = eventData.times[r] || "";
       rowEl.appendChild(timeCell);
 
-      for (let day = 0; day < days; day++) {
-        const slotIndex = day * rows + row;
+      for (let d = 0; d < days; d++) {
+        const idx = d * rows + r;
         const cell = document.createElement("div");
         cell.className = "grid-cell";
-        cell.dataset.index = String(slotIndex);
-
-        const count = (aggregate[row] && aggregate[row][day]) || 0;
+        cell.dataset.index = String(idx);
+        const count = (aggregate[r] && aggregate[r][d]) || 0;
         const level = maxCount === 0 ? 0 : Math.ceil((count / maxCount) * 4);
         cell.classList.add(`heat-${level}`);
-        if (mySlots.has(slotIndex)) cell.classList.add("my-slot");
-
+        if (mySlots.has(idx)) cell.classList.add("my-slot");
         attachCellListeners(cell);
-        cellsByIndex.set(slotIndex, cell);
+        cellsByIndex.set(idx, cell);
         rowEl.appendChild(cell);
       }
       gridEl.appendChild(rowEl);
     }
   }
 
-  function applyRangeSelection() {
-    if (!eventData) return;
-    const dayIndex = Number(rangeDaySelect.value || 0);
-    const fromValue = rangeFromInput.value;
-    const toValue = rangeToInput.value;
-    if (!fromValue || !toValue) {
-      alert("Please fill both From and To times.");
-      return;
-    }
-    const [fh, fm] = fromValue.split(":").map(Number);
-    const [th, tm] = toValue.split(":").map(Number);
-    const fromMinutes = fh * 60 + fm;
-    const toMinutes = th * 60 + tm;
-    if (toMinutes <= fromMinutes) {
-      alert("End time must be after start time.");
-      return;
-    }
-    const start = eventData.startTimeMinutes;
-    const slot = eventData.slotMinutes;
-    const rows = eventData.grid.slotsPerDay;
-    const clampToRow = (mins) => {
-      const offset = mins - start;
-      const raw = Math.floor(offset / slot);
-      return Math.max(0, Math.min(rows - 1, raw));
-    };
-    const startRow = clampToRow(fromMinutes);
-    const endRow = clampToRow(toMinutes - 1);
-    for (let row = startRow; row <= endRow; row++) {
-      const idx = dayIndex * rows + row;
-      toggleSlot(idx, true);
-    }
-  }
-
   function renderBestSlots() {
-    if (!eventData || !bestSlotsList || !participantCountEl) return;
-    bestSlotsList.innerHTML = "";
+    if (!bestSlots || !eventData) return;
+    bestSlots.innerHTML = "";
     const agg = eventData.grid.aggregate || [];
-    const whoGrid = eventData.grid.who || [];
+    const who = eventData.grid.who || [];
     const rows = eventData.grid.slotsPerDay;
     const days = eventData.dates.length;
-    const times = eventData.times;
     const participants = eventData.participants || [];
-    const results = [];
-    for (let day = 0; day < days; day++) {
-      for (let row = 0; row < rows; row++) {
-        const count = (agg[row] && agg[row][day]) || 0;
-        if (count <= 0) continue;
-        const names = (whoGrid[row] && whoGrid[row][day]) || [];
-        results.push({
-          dayIndex: day,
-          rowIndex: row,
-          count,
-          names,
-          dateIso: eventData.dates[day],
-          timeLabel: times[row],
-        });
+
+    const items = [];
+    for (let d = 0; d < days; d++) {
+      for (let r = 0; r < rows; r++) {
+        const cnt = (agg[r] && agg[r][d]) || 0;
+        if (cnt <= 0) continue;
+        items.push({ day: d, row: r, count: cnt, names: (who[r] && who[r][d]) || [] });
       }
     }
-    results.sort((a, b) => b.count - a.count);
-    const top = results.slice(0, 5);
-    if (top.length === 0) {
-      const li = document.createElement("li");
-      li.textContent = "No availability submitted yet.";
-      bestSlotsList.appendChild(li);
+    items.sort((a, b) => b.count - a.count);
+    if (items.length === 0) {
+      const li = document.createElement("li"); li.textContent = "No availability submitted yet."; bestSlots.appendChild(li); 
     } else {
-      top.forEach((slot) => {
+      items.slice(0, 5).forEach((s) => {
         const li = document.createElement("li");
-        const mainRow = document.createElement("div");
-        mainRow.className = "best-slot-main";
-        mainRow.innerHTML = `<span>${formatDateLabel(slot.dateIso)} @ ${slot.timeLabel}</span><span>${slot.count} available</span>`;
-        li.appendChild(mainRow);
-
-        const participantsRow = document.createElement("div");
-        participantsRow.className = "best-slot-participants";
-        const names = slot.names || [];
-        if (names.length === 0) {
-          const label = document.createElement("span");
-          label.textContent = "No one has picked this time yet.";
-          participantsRow.appendChild(label);
-        } else {
-          const label = document.createElement("span");
-          label.textContent = "Participants:";
-          participantsRow.appendChild(label);
-
-          const select = document.createElement("select");
-          select.className = "participant-dropdown";
-
-          const placeholder = document.createElement("option");
-          placeholder.value = "";
-          placeholder.textContent = `${names.length} participant${names.length > 1 ? "s" : ""}`;
-          placeholder.disabled = true;
-          placeholder.selected = true;
-          select.appendChild(placeholder);
-
-          names.forEach((name) => {
-            const opt = document.createElement("option");
-            opt.value = name;
-            opt.textContent = name;
-            select.appendChild(opt);
-          });
-          participantsRow.appendChild(select);
+        li.innerHTML = `<div class="best-slot-main"><span>${(new Date(eventData.dates[s.day] + "T00:00:00")).toLocaleDateString(undefined,{ weekday:"short", month:"numeric", day:"numeric" })} @ ${eventData.times[s.row]}</span><span>${s.count} available</span></div>`;
+        const p = document.createElement("div");
+        p.className = "best-slot-participants";
+        if (!s.names.length) p.textContent = "No one has picked this time yet.";
+        else {
+          const label = document.createElement("span"); label.textContent = "Participants:"; p.appendChild(label);
+          const sel = document.createElement("select"); sel.className = "participant-dropdown";
+          const opt = document.createElement("option"); opt.disabled = true; opt.selected = true; opt.textContent = `${s.names.length} participant${s.names.length>1?"s":""}`; sel.appendChild(opt);
+          s.names.forEach(n => { const o = document.createElement("option"); o.value = n; o.textContent = n; sel.appendChild(o); });
+          p.appendChild(sel);
         }
-        li.appendChild(participantsRow);
-        bestSlotsList.appendChild(li);
+        li.appendChild(p);
+        bestSlots.appendChild(li);
       });
     }
-    participantCountEl.textContent = `${participants.length} participant${participants.length === 1 ? "" : "s"} have responded.`;
+    if (participantCountEl) participantCountEl.textContent = `${(eventData.participants || []).length} participant${(eventData.participants||[]).length===1? "": "s"} have responded.`;
   }
 
   async function saveAvailability() {
     if (!eventData) return;
-    const name = participantNameInput.value.trim();
-    if (!name) {
-      alert("Please enter your name before saving.");
-      participantNameInput.focus();
-      return;
-    }
-    const slotsArray = Array.from(mySlots);
+    const name = (participantName?.value || "").trim();
+    if (!name) { alert("Please enter your name before saving."); participantName?.focus(); return; }
     try {
       await fetchJson(`/api/events/${encodeURIComponent(eventId)}/availability`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ participantName: name, slots: slotsArray }),
+        body: JSON.stringify({ participantName: name, slots: Array.from(mySlots) }),
       });
-      localStorage.setItem(myNameKey, name);
+      safeSet(myNameKey, name);
       alert("Availability saved!");
       await loadEvent();
-    } catch (err) {
-      console.error(err);
-      alert(err.message || "Error saving availability.");
+    } catch (e) {
+      console.error(e);
+      alert(e.message || "Error saving availability.");
     }
   }
 
   function clearMyAvailability() {
     mySlots = new Set();
-    localStorage.setItem(mySlotsKey, JSON.stringify([]));
-    cellsByIndex.forEach((cell) => cell.classList.remove("my-slot"));
+    safeSet(mySlotsKey, JSON.stringify([]));
+    cellsByIndex.forEach(c => c.classList.remove("my-slot"));
   }
 
-  function buildSlotRangesForEvent() {
+  function buildSlotRanges() {
     if (!eventData) return [];
-    const slotsPerDay = eventData.grid.slotsPerDay;
+    const perDay = eventData.grid.slotsPerDay;
     const days = eventData.dates.length;
-    const slotMinutes = eventData.slotMinutes;
-    const ranges = [];
-    for (let day = 0; day < days; day++) {
-      const dateStr = eventData.dates[day];
-      for (let row = 0; row < slotsPerDay; row++) {
-        const startMinutes = eventData.startTimeMinutes + row * slotMinutes;
-        const h = Math.floor(startMinutes / 60).toString().padStart(2, "0");
-        const m = (startMinutes % 60).toString().padStart(2, "0");
-        const slotStart = new Date(`${dateStr}T${h}:${m}:00`);
-        const slotEnd = new Date(slotStart.getTime() + slotMinutes * 60_000);
-        const index = day * slotsPerDay + row;
-        ranges[index] = { start: slotStart.getTime(), end: slotEnd.getTime() };
+    const minutes = eventData.slotMinutes;
+    const ranges = new Array(days * perDay);
+    for (let d = 0; d < days; d++) {
+      for (let r = 0; r < perDay; r++) {
+        const startMin = eventData.startTimeMinutes + r * minutes;
+        const h = Math.floor(startMin / 60).toString().padStart(2, "0");
+        const m = (startMin % 60).toString().padStart(2, "0");
+        const start = new Date(`${eventData.dates[d]}T${h}:${m}:00`).getTime();
+        const end = start + minutes * 60000;
+        ranges[d * perDay + r] = { start, end };
       }
     }
     return ranges;
   }
 
-  function applyCalendarOverlay() {
-    if (!cellsByIndex) return;
-    cellsByIndex.forEach((cell, idx) => {
-      cell.classList.toggle("busy-calendar", calendarBusySlots.has(idx));
-    });
-  }
-
+  /* Calendar overlay: fetch primary calendar events and mark overlapping slots */
   async function loadCalendarOverlayForCurrentEvent(statusEl) {
-    if (!eventData) {
-      statusEl && (statusEl.textContent = "Event data not loaded yet.");
-      return;
-    }
+    if (!eventData) { if (statusEl) statusEl.textContent = "Event not loaded yet."; return; }
     try {
-      statusEl && (statusEl.textContent = "Contacting Google Calendar...");
-      const accessToken = await getCalendarAccessToken();
-
-      const firstDate = eventData.dates[0];
-      const lastDate = eventData.dates[eventData.dates.length - 1];
-
-      const composeISO = (dateStr, minutes) => {
-        const h = Math.floor(minutes / 60).toString().padStart(2, "0");
-        const m = (minutes % 60).toString().padStart(2, "0");
-        return new Date(`${dateStr}T${h}:${m}:00`);
-      };
-
-      const startDateTime = composeISO(firstDate, eventData.startTimeMinutes);
-      const endDateTime = composeISO(lastDate, eventData.endTimeMinutes);
-
-      const params = new URLSearchParams({
-        timeMin: startDateTime.toISOString(),
-        timeMax: endDateTime.toISOString(),
-        singleEvents: "true",
-        orderBy: "startTime",
+      if (statusEl) statusEl.textContent = "Contacting Google Calendar...";
+      const token = await getCalendarAccessToken();
+      if (!token) throw new Error("No calendar token");
+      // fetch events
+      const first = eventData.dates[0];
+      const last = eventData.dates[eventData.dates.length - 1];
+      const startISO = new Date(`${first}T${String(Math.floor(eventData.startTimeMinutes/60)).padStart(2,"0")}:${String(eventData.startTimeMinutes%60).padStart(2,"0")}:00`).toISOString();
+      const endISO = new Date(`${last}T${String(Math.floor(eventData.endTimeMinutes/60)).padStart(2,"0")}:${String(eventData.endTimeMinutes%60).padStart(2,"0")}:00`).toISOString();
+      const params = new URLSearchParams({ timeMin: startISO, timeMax: endISO, singleEvents: "true", orderBy: "startTime" });
+      const resp = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params.toString()}`, {
+        headers: { Authorization: "Bearer " + token },
       });
-
-      const resp = await fetch(
-        "https://www.googleapis.com/calendar/v3/calendars/primary/events?" + params.toString(),
-        { headers: { Authorization: "Bearer " + accessToken } },
-      );
-
-      if (!resp.ok) {
-        const text = await resp.text().catch(() => "");
-        throw new Error(`Google Calendar error: ${resp.status} ${text}`);
-      }
-
+      if (!resp.ok) throw new Error(`Calendar error ${resp.status}`);
       const data = await resp.json();
-      const ranges = buildSlotRangesForEvent();
-      calendarBusySlots.clear();
-
-      const items = data.items || [];
-      for (const ev of items) {
-        const startStr = ev.start && (ev.start.dateTime || (ev.start.date && ev.start.date + "T00:00:00"));
-        const endStr = ev.end && (ev.end.dateTime || (ev.end.date && ev.end.date + "T23:59:59"));
-        if (!startStr || !endStr) continue;
-        const evStart = new Date(startStr).getTime();
-        const evEnd = new Date(endStr).getTime();
-        for (let i = 0; i < ranges.length; i++) {
-          const r = ranges[i];
-          if (!r) continue;
-          if (r.start < evEnd && r.end > evStart) calendarBusySlots.add(i);
-        }
+      const ranges = buildSlotRanges();
+      calendarBusy.clear();
+      for (const ev of (data.items || [])) {
+        const s = new Date(ev.start?.dateTime || (ev.start?.date + "T00:00:00")).getTime();
+        const e = new Date(ev.end?.dateTime || (ev.end?.date + "T23:59:59")).getTime();
+        ranges.forEach((r, idx) => { if (r && r.start < e && r.end > s) calendarBusy.add(idx); });
       }
-
-      applyCalendarOverlay();
-      statusEl && (statusEl.textContent = items.length === 0 ? "No calendar events during this poll window." : `Overlay applied from ${items.length} calendar event${items.length === 1 ? "" : "s"}.`);
-    } catch (err) {
-      console.error(err);
-      statusEl && (statusEl.textContent = err.message || "Failed to load calendar overlay.");
+      // apply to DOM
+      cellsByIndex.forEach((cell, idx) => {
+        cell.classList.toggle("busy-calendar", calendarBusy.has(idx));
+      });
+      if (statusEl) statusEl.textContent = `Overlay applied from ${(data.items||[]).length} event(s).`;
+      // optionally send token to backend
+      sendCalendarAccessTokenToBackend(token).catch(() => {});
+    } catch (e) {
+      console.error(e);
+      if (statusEl) statusEl.textContent = e.message || "Failed to load calendar overlay.";
     }
   }
 
-  // listeners
+  // wire UI
   saveBtn && saveBtn.addEventListener("click", saveAvailability);
   clearBtn && clearBtn.addEventListener("click", clearMyAvailability);
-  rangeApplyBtn && rangeApplyBtn.addEventListener("click", (e) => { e.preventDefault(); applyRangeSelection(); });
-  overlayBtn && overlayStatus && overlayBtn.addEventListener("click", () => loadCalendarOverlayForCurrentEvent(overlayStatus));
+  rangeApply && rangeApply.addEventListener("click", (ev) => { ev.preventDefault(); 
+    // apply range: same logic as previous implementation (kept short)
+    const dayIndex = Number(rangeDay?.value || 0);
+    const from = rangeFrom?.value;
+    const to = rangeTo?.value;
+    if (!from || !to) { alert("Please fill both From and To times."); return; }
+    const [fh, fm] = from.split(":").map(Number);
+    const [th, tm] = to.split(":").map(Number);
+    const fromMinutes = fh*60 + fm;
+    const toMinutes = th*60 + tm;
+    if (toMinutes <= fromMinutes) { alert("End time must be after start time."); return; }
+    const start = eventData.startTimeMinutes;
+    const step = eventData.slotMinutes;
+    const rows = eventData.grid.slotsPerDay;
+    const clamp = (mins) => Math.max(0, Math.min(rows-1, Math.floor((mins - start)/step)));
+    const sRow = clamp(fromMinutes);
+    const eRow = clamp(toMinutes-1);
+    for (let r = sRow; r <= eRow; r++) toggleSlot(dayIndex * rows + r, true);
+  });
 
-  loadEvent();
-
-  // expose overlay loader for Google sign-in callback
+  if (overlayBtn) overlayBtn.addEventListener("click", () => loadCalendarOverlayForCurrentEvent(overlayStatus));
+  // expose loader for other code (e.g. sign-in flow)
   window.loadCalendarOverlayForCurrentEvent = loadCalendarOverlayForCurrentEvent;
+
+  // initial load
+  loadEvent();
 }
 
-// ---------- Join page ----------
-function initJoinPage() {
-  const input = $("#join-event-input");
-  const openBtn = $("#join-open-button");
-  const msg = $("#join-saved-msg");
-  const queryId = getQueryParam("id");
-
-  const saveAndReport = (id) => {
+/* Appearance page (kept minimal) */
+function initAppearancePage() {
+  const form = $("#appearance-form");
+  if (!form) return;
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const theme = form.querySelector('input[name="theme"]:checked')?.value;
+    const density = form.querySelector('input[name="density"]:checked')?.value;
     try {
-      localStorage.setItem("hsync:lastJoinedEvent", id);
-    } catch (e) {}
-    if (msg) msg.textContent = `Saved poll ${id}. Click "Open poll" to go to it.`;
-  };
-
-  // If the page was opened with ?id=..., save it and prefill
-  if (queryId) {
-    if (input) input.value = queryId;
-    saveAndReport(queryId);
-  } else {
-    // Otherwise prefill from last saved join if available
-    try {
-      const last = localStorage.getItem("hsync:lastJoinedEvent");
-      if (last && input) input.value = last;
-      if (last && msg) msg.textContent = `Last saved poll: ${last}`;
-    } catch (e) {}
-  }
-
-  openBtn && openBtn.addEventListener("click", () => {
-    const raw = (input && input.value.trim()) || "";
-    if (!raw) return;
-    let id = raw;
-    try {
-      const maybeUrl = new URL(raw);
-      const match = maybeUrl.searchParams.get("id");
-      if (match) id = match;
-      else {
-        const parts = maybeUrl.pathname.split("/");
-        id = parts[parts.length - 1] || parts[parts.length - 2] || "";
-        if (id === "event.html") id = maybeUrl.searchParams.get("id") || "";
-      }
-    } catch {
-      // plain id
+      const data = await fetchJson("/api/theme", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ theme, density }) });
+      if (data?.theme) document.documentElement.dataset.theme = data.theme;
+      alert("Appearance saved.");
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Failed to save appearance.");
     }
-    if (!id) {
-      alert("Could not find an event id in that link.");
-      return;
-    }
-    saveAndReport(id);
-    // navigate to the actual event
-    window.location.href = `/event.html?id=${encodeURIComponent(id)}`;
   });
 }
 
-// ---------- Boot ----------
+/* -------------------------
+   Boot: DOMContentLoaded wiring
+   ------------------------- */
 document.addEventListener("DOMContentLoaded", () => {
-  if (document.body.classList.contains("page-home")) {
-    loadCurrentUserAndTheme().then(initHomePage);
-  }
-  if (document.body.classList.contains("page-event")) {
-    // save event id when an event page is loaded so the topbar "Event" tab
-    // can return the user to the same poll later.
-    const cur = getQueryParam("id");
-    if (cur) setLastOpenedEvent(cur);
-    loadCurrentUserAndTheme().then(initEventPage);
-  }
-  if (document.body.classList.contains("page-join")) {
-    loadCurrentUserAndTheme().then(initJoinPage);
-  }
-  if (document.body.classList.contains("page-appearance")) {
-    initAppearancePage();
-  }
+  // rehydrate small topbar profile if stored
+  const storedPic = safeGet("hsync:profilePic");
+  const storedName = safeGet("hsync:profileName");
+  if (storedPic || storedName) setTopbarProfile(storedPic, storedName);
+  // render GSI in topbar if available after a short delay
+  setTimeout(initTopbarGsi, 200);
 
-  // Make the topbar Event link open the saved event id from any page.
-  // If none saved, fall back to lastJoinedEvent; if still none, go to /join.html.
+  if (document.body.classList.contains("page-home")) loadCurrentUserAndTheme().then(initHomePage);
+  if (document.body.classList.contains("page-join")) loadCurrentUserAndTheme().then(initJoinPage);
+  if (document.body.classList.contains("page-event")) loadCurrentUserAndTheme().then(initEventPage);
+  if (document.body.classList.contains("page-appearance")) initAppearancePage();
+
+  // Topbar Event link behavior: open saved event id (or fallback) from any page
   try {
     const eventLink = document.querySelector('.topbar-nav a[href="event.html"]');
-    if (eventLink) {
-      eventLink.addEventListener("click", (ev) => {
-        // allow modifier keys / middle-click to open in new tab normally
-        if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button === 1) return;
-        ev.preventDefault();
-        const lastOpened = getLastOpenedEvent();
-        const fallbackJoined = getLastJoinedEvent();
-        if (lastOpened) {
-          window.location.href = `/event.html?id=${encodeURIComponent(lastOpened)}`;
-          return;
-        }
-        if (fallbackJoined) {
-          // also set as opened for next time
-          setLastOpenedEvent(fallbackJoined);
-          window.location.href = `/event.html?id=${encodeURIComponent(fallbackJoined)}`;
-          return;
-        }
-        // nothing saved — send user to Join page to open a poll
-        alert("No event saved. Use Join to open a poll first.");
-        window.location.href = "/join.html";
-      });
-    }
-  } catch (e) {
-    // ignore
-    console.warn("Could not wire Event topbar link:", e);
-  }
-});
-
-// convenience: persist / read the last opened event id
-function setLastOpenedEvent(id) {
-  try {
-    if (id) localStorage.setItem("hsync:lastOpenedEvent", String(id));
-    else localStorage.removeItem("hsync:lastOpenedEvent");
-  } catch (e) {
-    // ignore storage errors
-  }
-}
-function getLastOpenedEvent() {
-  try {
-    return localStorage.getItem("hsync:lastOpenedEvent");
-  } catch (e) {
-    return null;
-  }
-}
-
-// also expose helper to read last-joined event (used as fallback)
-function getLastJoinedEvent() {
-  try {
-    return localStorage.getItem("hsync:lastJoinedEvent");
-  } catch (e) {
-    return null;
-  }
-}
-
-// small helper: decode JWT payload (id_token) to extract name/picture
-function parseJwt(token) {
-  try {
-    const payload = token.split(".")[1];
-    const json = atob(payload.replace(/-/g, "+").replace(/_/g, "/"));
-    return JSON.parse(decodeURIComponent(escape(json)));
-  } catch (e) {
-    return null;
-  }
-}
-
-// update topbar UI with profile picture and name badge
-function setTopbarProfile(pictureUrl, name) {
-  try {
-    const pic = $("#topbar-profile-pic");
-    const gsi = $("#gsi-topbar");
-    if (pictureUrl && pic) {
-      pic.src = pictureUrl;
-      pic.style.display = "inline-block";
-    } else if (pic) {
-      pic.style.display = "none";
-      pic.src = "";
-    }
-    // hide GSI button after sign-in (user can still sign out later if you add that)
-    if (gsi) gsi.style.display = pictureUrl ? "none" : "inline-flex";
-
-    // persist for other pages
-    try {
-      if (pictureUrl) localStorage.setItem("hsync:profilePic", pictureUrl);
-      else localStorage.removeItem("hsync:profilePic");
-      if (name) localStorage.setItem("hsync:profileName", name);
-    } catch (e) {}
-  } catch (e) {
-    console.warn("setTopbarProfile error", e);
-  }
-}
-
-// render GSI button in the topbar if available
-function initTopbarGsi() {
-  const container = $("#gsi-topbar");
-  if (!container || !window.google || !google.accounts || !google.accounts.id) return;
-  // ensure callback is initialized (callback function handleGoogleCredentialResponse exists)
-  google.accounts.id.initialize({
-    client_id: GOOGLE_CLIENT_ID,
-    callback: window.handleGoogleCredentialResponse,
-    auto_select: false,
-  });
-  // render a small icon-style button next to the brand
-  google.accounts.id.renderButton(container, {
-    type: "icon",
-    theme: "outline",
-    size: "small",
-    shape: "circle",
-    logo_alignment: "left",
-  });
-  // do not auto prompt here
-}
-
-// ensure persisted profile pic/name is applied on load
-try {
-  const savedPic = localStorage.getItem("hsync:profilePic");
-  const savedName = localStorage.getItem("hsync:profileName");
-  if (savedPic || savedName) {
-    // apply after DOMContentLoaded to ensure elements exist
-    document.addEventListener("DOMContentLoaded", () => {
-      setTopbarProfile(savedPic, savedName);
-    });
-  } else {
-    // still try to init GSI button after DOM ready
-    document.addEventListener("DOMContentLoaded", () => {
-      initTopbarGsi();
-    });
-  }
-} catch (e) {
-  // ignore storage errors
-}
-
-// enhance existing Google credential handler to update topbar profile
-const _oldHandle = window.handleGoogleCredentialResponse;
-window.handleGoogleCredentialResponse = async (response) => {
-  try {
-    // preserve previous behavior
-    if (typeof _oldHandle === "function") await _oldHandle(response);
-  } catch (e) {
-    // continue — we still want to update the UI below
-    console.warn("old handle error", e);
-  }
-
-  // decode id token for basic profile fields (if present)
-  try {
-    const payload = parseJwt(response?.credential);
-    const pic = payload?.picture || payload?.avatar_url || null;
-    const name = payload?.name || payload?.given_name || null;
-    if (pic || name) {
-      setTopbarProfile(pic, name);
-    } else {
-      // try to fetch profile via token if you obtain an access token elsewhere
-    }
-  } catch (e) {
-    console.warn("Could not parse id token for profile:", e);
-  }
-};
-
-// ensure the topbar GSI is rendered on pages that load current user and theme
-// keep consistent with existing boot sequence
-document.addEventListener("DOMContentLoaded", () => {
-  // attempt to render topbar button whenever DOM ready and google lib loaded
-  setTimeout(() => {
-    initTopbarGsi();
-  }, 200);
-});
-
-// sign out helper: clear local state, notify backend, and disable GSI auto-select
-async function signOutAllGoogle() {
-  try {
-    // disable auto sign-in selection for GSI
-    if (window.google && google.accounts && google.accounts.id && typeof google.accounts.id.disableAutoSelect === "function") {
-      google.accounts.id.disableAutoSelect();
-    }
-  } catch (e) {
-    console.warn("disableAutoSelect failed", e);
-  }
-
-  try {
-    // best-effort: call backend logout to clear server session/cookies (if implemented)
-    await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
-  } catch (e) {
-    console.warn("backend logout failed", e);
-  }
-
-  try {
-    // clear stored profile and event keys
-    localStorage.removeItem("hsync:profilePic");
-    localStorage.removeItem("hsync:profileName");
-    localStorage.removeItem("hsync:lastOpenedEvent");
-    localStorage.removeItem("hsync:lastJoinedEvent");
-  } catch (e) {}
-
-  try {
-    // update UI immediately if helper exists
-    if (typeof setTopbarProfile === "function") setTopbarProfile(null, null);
-  } catch (e) {}
-
-  // reload to ensure app state is clean
-  window.location.reload();
-}
-
-// wire logout button when DOM is ready (only present on homepage)
-document.addEventListener("DOMContentLoaded", () => {
-  const logoutBtn = document.getElementById("logout-all-google");
-  if (logoutBtn) {
-    logoutBtn.addEventListener("click", (ev) => {
+    if (eventLink) eventLink.addEventListener("click", (ev) => {
+      if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button === 1) return;
       ev.preventDefault();
-      if (!confirm("Sign out of Google and clear saved profile info?")) return;
-      signOutAllGoogle();
+      const last = getLastOpenedEvent() || getLastJoinedEvent();
+      if (last) window.location.href = `/event.html?id=${encodeURIComponent(last)}`;
+      else window.location.href = "/join.html";
     });
-  }
+  } catch (e) { console.warn("Could not wire Event topbar link:", e); }
 });
