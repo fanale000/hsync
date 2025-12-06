@@ -8,7 +8,7 @@ const cookieSession = require("cookie-session");
 
 // TODO: replace with your real client ID from Google Cloud Console
 const GOOGLE_CLIENT_ID =
-  "889787397602-gku8r94alb2b10s9lm35e2s2irbdntoq.apps.googleusercontent.com";
+  "19747295970-tp902n56girks9e8kegdl1vlod13l3ti.apps.googleusercontent.com";
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
 const app = express();
