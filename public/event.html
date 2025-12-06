@@ -41,39 +41,22 @@
             </label>
           </div>
           <div class="participant-row">
-            <div
-              id="g_id_onload"
-              data-client_id="19747295970-tp902n56girks9e8kegdl1vlod13l3ti.apps.googleusercontent.com"
-              data-context="signin"
-              data-callback="handleGoogleCredentialResponse"
-              data-auto_prompt="false"
-            ></div>
-
-            <div
-              class="g_id_signin"
-              data-type="icon"
-              data-size="medium"
-              data-theme="outline"
-              data-text="signin"
-              data-shape="circle"
-              data-logo_alignment="left"
-            ></div>
-
-            <label>
-              Your name
-              <input
-                type="text"
-                id="participant-name"
-                placeholder="e.g. Emma, Alex, Chris"
-              />
-            </label>
-            <button id="save-availability" class="btn btn-primary">
-              Save my availability
-            </button>
-            <button id="clear-availability" class="btn btn-ghost">
-              Clear mine
-            </button>
-          </div>
+             <!-- Google sign-in for name entry removed — manual input only -->
+             <label>
+               Your name
+               <input
+                 type="text"
+                 id="participant-name"
+                 placeholder="e.g. Emma, Alex, Chris"
+               />
+             </label>
+             <button id="save-availability" class="btn btn-primary">
+               Save my availability
+             </button>
+             <button id="clear-availability" class="btn btn-ghost">
+               Clear mine
+             </button>
+           </div>
           <div class="calendar-overlay-row">
             <button id="load-calendar-overlay" class="btn btn-ghost">
               Overlay my Google Calendar
