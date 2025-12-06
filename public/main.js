@@ -54,7 +54,7 @@ function parseJwt(token) {
 }
 
 /* -------------------------
-   Local storage helpers
+   Local / session storage helpers
    ------------------------- */
 function safeSet(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
 function safeGet(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
@@ -64,6 +64,11 @@ function setLastOpenedEvent(id) { if (id) safeSet("hsync:lastOpenedEvent", Strin
 function getLastOpenedEvent() { return safeGet("hsync:lastOpenedEvent"); }
 function setLastJoinedEvent(id) { if (id) safeSet("hsync:lastJoinedEvent", String(id)); else safeRemove("hsync:lastJoinedEvent"); }
 function getLastJoinedEvent() { return safeGet("hsync:lastJoinedEvent"); }
+
+// Session-scoped current event (persists only for this tab/window)
+function setSessionEvent(id) { try { if (id) sessionStorage.setItem("hsync:sessionEvent", String(id)); else sessionStorage.removeItem("hsync:sessionEvent"); } catch (e) {} }
+function getSessionEvent() { try { return sessionStorage.getItem("hsync:sessionEvent"); } catch (e) { return null; } }
+function clearSessionEvent() { try { sessionStorage.removeItem("hsync:sessionEvent"); } catch (e) {} }
 
 /* -------------------------
    Google / Calendar helpers
@@ -343,6 +348,8 @@ function initJoinPage() {
       } catch { /* plain id allowed */ }
       if (!id) { alert("Could not find an event id in that link."); return; }
       saveAndReport(id);
+      // mark as the session's active poll for this tab (survives navigation between pages)
+      setSessionEvent(id);
       window.location.href = `/event.html?id=${encodeURIComponent(id)}`;
     });
   }
@@ -355,6 +362,11 @@ function initJoinPage() {
 function initEventPage() {
   const eventId = getQueryParam("id");
   if (!eventId) { alert("Missing event id in URL."); return; }
+
+  // make this poll the session's active poll (cleared only when tab closes or user joins another)
+  setSessionEvent(eventId);
+  // also remember as last opened (persistent)
+  setLastOpenedEvent(eventId);
 
   // DOM cache
   const gridEl = $("#availability-grid");
@@ -683,7 +695,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (eventLink) eventLink.addEventListener("click", (ev) => {
       if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button === 1) return;
       ev.preventDefault();
-      const last = getLastOpenedEvent() || getLastJoinedEvent();
+      // prefer the session-scoped event for this tab, then fall back to persisted ids
+      const sessionId = getSessionEvent();
+      const last = sessionId || getLastOpenedEvent() || getLastJoinedEvent();
       if (last) window.location.href = `/event.html?id=${encodeURIComponent(last)}`;
       else window.location.href = "/join.html";
     });
