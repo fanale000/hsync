@@ -79,34 +79,59 @@ function clearSessionEvent() { try { sessionStorage.removeItem("hsync:sessionEve
 */
 let calendarTokenClient = null;
 
+const CAL_TOKEN_KEY = "hsync:calToken";
+
 /**
- * Request a calendar access token via google.accounts.oauth2.initTokenClient.
- * Resolves with access token string or rejects with an Error.
+ * Obtain a Google Calendar access token.
+ * - Reuses a session-scoped cached token until it nears expiry.
+ * - Falls back to showing the consent prompt via the token client when needed.
  */
-function getCalendarAccessToken() {
+function getCalendarAccessToken(forceRefresh = false) {
+  try {
+    if (!forceRefresh) {
+      const raw = sessionStorage.getItem(CAL_TOKEN_KEY);
+      if (raw) {
+        const obj = JSON.parse(raw);
+        if (obj?.access_token && obj?.expires_at && Date.now() < obj.expires_at - 60000) {
+          return Promise.resolve(obj.access_token);
+        }
+      }
+    }
+  } catch (e) { /* ignore parse errors and continue to request new token */ }
+
   return new Promise((resolve, reject) => {
     if (!window.google || !google.accounts || !google.accounts.oauth2) {
-      return reject(new Error("Google API not loaded yet."));
+      return reject(new Error("Google API not loaded"));
     }
+
     if (!calendarTokenClient) {
       try {
         calendarTokenClient = google.accounts.oauth2.initTokenClient({
           client_id: GOOGLE_CLIENT_ID,
-          // readonly calendar + basic profile to fetch picture/name if needed
           scope: "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/userinfo.profile",
           callback: (resp) => {
-            if (resp && resp.access_token) resolve(resp.access_token);
-            else reject(new Error("No access token returned"));
+            if (resp && resp.access_token) {
+              const expires_in = Number(resp.expires_in) || (55 * 60); // seconds
+              const expires_at = Date.now() + expires_in * 1000;
+              try {
+                sessionStorage.setItem(CAL_TOKEN_KEY, JSON.stringify({ access_token: resp.access_token, expires_at }));
+              } catch (e) {}
+              resolve(resp.access_token);
+            } else {
+              reject(new Error("No access token returned"));
+            }
           },
         });
-      } catch (e) {
-        return reject(e);
+      } catch (err) {
+        return reject(err);
       }
     }
+
     try {
+      // Will prompt user if no valid cached token exists
       calendarTokenClient.requestAccessToken();
-    } catch (e) {
-      reject(e);
+    } catch (err) {
+      reject(err);
     }
   });
 }
