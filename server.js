@@ -7,9 +7,9 @@ const { OAuth2Client } = require("google-auth-library");
 const cookieSession = require("cookie-session");
 
 // TODO: replace with your real client ID from Google Cloud Console
-const GOOGLE_CLIENT_ID = "889787397602-gku8r94alb2b10s9lm35e2s2irbdntoq.apps.googleusercontent.com";
+const GOOGLE_CLIENT_ID =
+  "889787397602-gku8r94alb2b10s9lm35e2s2irbdntoq.apps.googleusercontent.com";
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
-
 
 const app = express();
 app.use(express.json());
@@ -17,7 +17,7 @@ app.use(
   cookieSession({
     name: "hsync_session",
     keys: ["a-very-secret-key-1", "a-very-secret-key-2"], // replace in real app
-    maxAge: 7 * 24 * 60 * 60 * 1000 // 1 week
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 1 week
   })
 );
 
@@ -45,7 +45,7 @@ function formatTime(minutes) {
   const mm = m.toString().padStart(2, "0");
   return `${h}:${mm} ${ampm}`;
 }
-  // aggregate[row][day] = number of people available
+// aggregate[row][day] = number of people available
 function computeAggregate(event) {
   const totalMinutes = event.endTimeMinutes - event.startTimeMinutes;
   const slotsPerDay = Math.floor(totalMinutes / event.slotMinutes);
@@ -85,14 +85,19 @@ function computeAggregate(event) {
   return { aggregate, who, maxCount, slotsPerDay };
 }
 
-
-
 // Create event
 app.post("/api/events", (req, res) => {
   const { title, startDate, endDate, startTime, endTime, slotMinutes } =
     req.body || {};
 
-  if (!title || !startDate || !endDate || !startTime || !endTime || !slotMinutes) {
+  if (
+    !title ||
+    !startDate ||
+    !endDate ||
+    !startTime ||
+    !endTime ||
+    !slotMinutes
+  ) {
     return res.status(400).json({ error: "Missing required fields." });
   }
 
@@ -132,7 +137,7 @@ app.post("/api/events", (req, res) => {
     slotMinutes: slotMins,
     startTimeMinutes,
     endTimeMinutes,
-    participants: {} // key: normalizedName -> { name, slots: Set<number> }
+    participants: {}, // key: normalizedName -> { name, slots: Set<number> }
   };
 
   console.log("Created event", id, events[id]);
@@ -164,11 +169,13 @@ app.get("/api/events/:id", (req, res) => {
     endTimeMinutes: event.endTimeMinutes,
     grid: {
       aggregate, // [row][day] -> count
-      who,       // [row][day] -> ["Name1", "Name2"]
+      who, // [row][day] -> ["Name1", "Name2"]
       maxCount,
-      slotsPerDay
+      slotsPerDay,
     },
-    participants: Object.values(event.participants).map((p) => ({ name: p.name }))
+    participants: Object.values(event.participants).map((p) => ({
+      name: p.name,
+    })),
   });
 });
 
@@ -205,7 +212,7 @@ app.post("/api/events/:id/availability", (req, res) => {
   const key = cleanedName.toLowerCase();
   event.participants[key] = {
     name: cleanedName,
-    slots: clampedSlots
+    slots: clampedSlots,
   };
 
   console.log(`Updated availability for ${cleanedName} on event ${event.id}`);
@@ -215,14 +222,14 @@ app.post("/api/events/:id/availability", (req, res) => {
 async function verifyGoogleToken(idToken) {
   const ticket = await googleClient.verifyIdToken({
     idToken,
-    audience: GOOGLE_CLIENT_ID
+    audience: GOOGLE_CLIENT_ID,
   });
   const payload = ticket.getPayload();
   // payload has fields like: sub (user ID), name, email, picture
   return {
     googleId: payload.sub,
     name: payload.name,
-    email: payload.email
+    email: payload.email,
   };
 }
 
@@ -230,7 +237,6 @@ async function verifyGoogleToken(idToken) {
 const users = {}; // key: googleId -> { googleId, name, email }
 // userId -> appearance settings
 const themes = {}; // { [googleId]: { theme: "harvard", density: "comfortable" } }
-
 
 app.post("/api/auth/google", async (req, res) => {
   try {
@@ -248,7 +254,7 @@ app.post("/api/auth/google", async (req, res) => {
     req.session.user = {
       googleId: userInfo.googleId,
       name: userInfo.name,
-      email: userInfo.email
+      email: userInfo.email,
     };
 
     res.json({ ok: true, user: req.session.user });
@@ -275,7 +281,7 @@ app.post("/api/logout", (req, res) => {
 // Default appearance if user has no saved theme
 const defaultTheme = {
   theme: "harvard",
-  density: "comfortable"
+  density: "comfortable",
 };
 
 // Get appearance for current logged-in user
@@ -300,11 +306,13 @@ app.post("/api/theme", (req, res) => {
   const allowedDensity = new Set(["comfortable", "compact"]);
 
   const safeTheme = allowedThemes.has(theme) ? theme : defaultTheme.theme;
-  const safeDensity = allowedDensity.has(density) ? density : defaultTheme.density;
+  const safeDensity = allowedDensity.has(density)
+    ? density
+    : defaultTheme.density;
 
   themes[googleId] = {
     theme: safeTheme,
-    density: safeDensity
+    density: safeDensity,
   };
 
   console.log(`Saved theme for ${googleId}:`, themes[googleId]);

@@ -13,12 +13,13 @@ function formatDateLabel(iso) {
   return d.toLocaleDateString(undefined, {
     weekday: "short",
     month: "numeric",
-    day: "numeric"
+    day: "numeric",
   });
 }
 
 // ---------- Google / Calendar overlay ----------
-const GOOGLE_CLIENT_ID = "889787397602-gku8r94alb2b10s9lm35e2s2irbdntoq.apps.googleusercontent.com"; // same as in your HTML
+const GOOGLE_CLIENT_ID =
+  "889787397602-gku8r94alb2b10s9lm35e2s2irbdntoq.apps.googleusercontent.com"; // same as in your HTML
 
 let calendarTokenClient = null;
 let calendarBusySlots = new Set();
@@ -39,7 +40,7 @@ function getCalendarAccessToken() {
           } else {
             reject(new Error("No access token received from Google."));
           }
-        }
+        },
       });
     }
 
@@ -90,7 +91,7 @@ async function sendGoogleTokenToBackend(idToken) {
   const res = await fetch("/api/auth/google", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ idToken })
+    body: JSON.stringify({ idToken }),
   });
 
   if (!res.ok) {
@@ -169,7 +170,7 @@ function initAppearancePage() {
       const res = await fetch("/api/theme", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ theme, density })
+        body: JSON.stringify({ theme, density }),
       });
 
       if (!res.ok) {
@@ -222,8 +223,8 @@ function initHomePage() {
           endDate,
           startTime,
           endTime,
-          slotMinutes
-        })
+          slotMinutes,
+        }),
       });
 
       if (!res.ok) {
@@ -299,7 +300,7 @@ function buildSlotRangesForEvent() {
       const index = day * slotsPerDay + row;
       ranges[index] = {
         start: slotStart.getTime(),
-        end: slotEnd.getTime()
+        end: slotEnd.getTime(),
       };
     }
   }
@@ -348,7 +349,7 @@ async function loadCalendarOverlayForCurrentEvent(statusEl) {
       timeMin: startDateTime.toISOString(),
       timeMax: endDateTime.toISOString(),
       singleEvents: "true",
-      orderBy: "startTime"
+      orderBy: "startTime",
     });
 
     const resp = await fetch(
@@ -356,8 +357,8 @@ async function loadCalendarOverlayForCurrentEvent(statusEl) {
         params.toString(),
       {
         headers: {
-          Authorization: "Bearer " + accessToken
-        }
+          Authorization: "Bearer " + accessToken,
+        },
       }
     );
 
@@ -409,7 +410,6 @@ async function loadCalendarOverlayForCurrentEvent(statusEl) {
     statusEl.textContent = err.message || "Failed to load calendar overlay.";
   }
 }
-
 
 // ---------- Event page (grid + availability) ----------
 function initEventPage() {
@@ -646,109 +646,110 @@ function initEventPage() {
       toggleSlot(idx, true);
     }
   }
-function renderBestSlots() {
-  if (!eventData || !bestSlotsList || !participantCountEl) return;
+  function renderBestSlots() {
+    if (!eventData || !bestSlotsList || !participantCountEl) return;
 
-  bestSlotsList.innerHTML = "";
+    bestSlotsList.innerHTML = "";
 
-  const agg = eventData.grid.aggregate || [];
-  const whoGrid = eventData.grid.who || [];
-  const rows = eventData.grid.slotsPerDay;
-  const days = eventData.dates.length;
-  const times = eventData.times;
-  const participants = eventData.participants || [];
+    const agg = eventData.grid.aggregate || [];
+    const whoGrid = eventData.grid.who || [];
+    const rows = eventData.grid.slotsPerDay;
+    const days = eventData.dates.length;
+    const times = eventData.times;
+    const participants = eventData.participants || [];
 
-  const results = [];
+    const results = [];
 
-  // Build a list of all non-empty slots with counts + names
-  for (let day = 0; day < days; day++) {
-    for (let row = 0; row < rows; row++) {
-      const count = (agg[row] && agg[row][day]) || 0;
-      if (count <= 0) continue;
+    // Build a list of all non-empty slots with counts + names
+    for (let day = 0; day < days; day++) {
+      for (let row = 0; row < rows; row++) {
+        const count = (agg[row] && agg[row][day]) || 0;
+        if (count <= 0) continue;
 
-      const names =
-        whoGrid[row] && whoGrid[row][day] ? whoGrid[row][day] : [];
+        const names =
+          whoGrid[row] && whoGrid[row][day] ? whoGrid[row][day] : [];
 
-      results.push({
-        dayIndex: day,
-        rowIndex: row,
-        count,
-        names,
-        dateIso: eventData.dates[day],
-        timeLabel: times[row]
-      });
+        results.push({
+          dayIndex: day,
+          rowIndex: row,
+          count,
+          names,
+          dateIso: eventData.dates[day],
+          timeLabel: times[row],
+        });
+      }
     }
-  }
 
-  // Sort by most people available
-  results.sort((a, b) => b.count - a.count);
+    // Sort by most people available
+    results.sort((a, b) => b.count - a.count);
 
-  const top = results.slice(0, 5);
+    const top = results.slice(0, 5);
 
-  if (top.length === 0) {
-    const li = document.createElement("li");
-    li.textContent = "No availability submitted yet.";
-    bestSlotsList.appendChild(li);
-  } else {
-    top.forEach((slot) => {
+    if (top.length === 0) {
       const li = document.createElement("li");
+      li.textContent = "No availability submitted yet.";
+      bestSlotsList.appendChild(li);
+    } else {
+      top.forEach((slot) => {
+        const li = document.createElement("li");
 
-      // First row: date/time and count
-      const mainRow = document.createElement("div");
-      mainRow.className = "best-slot-main";
-      mainRow.innerHTML = `
+        // First row: date/time and count
+        const mainRow = document.createElement("div");
+        mainRow.className = "best-slot-main";
+        mainRow.innerHTML = `
         <span>${formatDateLabel(slot.dateIso)} @ ${slot.timeLabel}</span>
         <span>${slot.count} available</span>
       `;
 
-      li.appendChild(mainRow);
+        li.appendChild(mainRow);
 
-      // Second row: dropdown of participants
-      const participantsRow = document.createElement("div");
-      participantsRow.className = "best-slot-participants";
+        // Second row: dropdown of participants
+        const participantsRow = document.createElement("div");
+        participantsRow.className = "best-slot-participants";
 
-      const names = slot.names && slot.names.length ? slot.names : [];
+        const names = slot.names && slot.names.length ? slot.names : [];
 
-      if (names.length === 0) {
-        const label = document.createElement("span");
-        label.textContent = "No one has picked this time yet.";
-        participantsRow.appendChild(label);
-      } else {
-        const label = document.createElement("span");
-        label.textContent = "Participants:";
-        participantsRow.appendChild(label);
+        if (names.length === 0) {
+          const label = document.createElement("span");
+          label.textContent = "No one has picked this time yet.";
+          participantsRow.appendChild(label);
+        } else {
+          const label = document.createElement("span");
+          label.textContent = "Participants:";
+          participantsRow.appendChild(label);
 
-        const select = document.createElement("select");
-        select.className = "participant-dropdown";
+          const select = document.createElement("select");
+          select.className = "participant-dropdown";
 
-        // Placeholder option showing how many people
-        const placeholder = document.createElement("option");
-        placeholder.value = "";
-        placeholder.textContent = `${names.length} participant${names.length > 1 ? "s" : ""}`;
-        placeholder.disabled = true;
-        placeholder.selected = true;
-        select.appendChild(placeholder);
+          // Placeholder option showing how many people
+          const placeholder = document.createElement("option");
+          placeholder.value = "";
+          placeholder.textContent = `${names.length} participant${
+            names.length > 1 ? "s" : ""
+          }`;
+          placeholder.disabled = true;
+          placeholder.selected = true;
+          select.appendChild(placeholder);
 
-        names.forEach((name) => {
-          const opt = document.createElement("option");
-          opt.value = name;
-          opt.textContent = name;
-          select.appendChild(opt);
-        });
+          names.forEach((name) => {
+            const opt = document.createElement("option");
+            opt.value = name;
+            opt.textContent = name;
+            select.appendChild(opt);
+          });
 
-        participantsRow.appendChild(select);
-      }
+          participantsRow.appendChild(select);
+        }
 
-      li.appendChild(participantsRow);
-      bestSlotsList.appendChild(li);
-    });
+        li.appendChild(participantsRow);
+        bestSlotsList.appendChild(li);
+      });
+    }
+
+    participantCountEl.textContent = `${participants.length} participant${
+      participants.length === 1 ? "" : "s"
+    } have responded.`;
   }
-
-  participantCountEl.textContent = `${
-    participants.length
-  } participant${participants.length === 1 ? "" : "s"} have responded.`;
-}
-
 
   async function saveAvailability() {
     if (!eventData) return;
@@ -762,14 +763,17 @@ function renderBestSlots() {
     const slotsArray = Array.from(mySlots);
 
     try {
-      const res = await fetch(`/api/events/${encodeURIComponent(eventId)}/availability`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          participantName: name,
-          slots: slotsArray
-        })
-      });
+      const res = await fetch(
+        `/api/events/${encodeURIComponent(eventId)}/availability`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            participantName: name,
+            slots: slotsArray,
+          }),
+        }
+      );
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -807,15 +811,14 @@ function renderBestSlots() {
   }
 
   loadEvent();
-    const overlayBtn = document.getElementById("load-calendar-overlay");
-const overlayStatus = document.getElementById("calendar-overlay-status");
+  const overlayBtn = document.getElementById("load-calendar-overlay");
+  const overlayStatus = document.getElementById("calendar-overlay-status");
 
-if (overlayBtn && overlayStatus) {
-  overlayBtn.addEventListener("click", () => {
-    loadCalendarOverlayForCurrentEvent(overlayStatus);
-  });
-}
-
+  if (overlayBtn && overlayStatus) {
+    overlayBtn.addEventListener("click", () => {
+      loadCalendarOverlayForCurrentEvent(overlayStatus);
+    });
+  }
 }
 
 // ---------- Boot ----------
