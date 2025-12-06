@@ -16,6 +16,7 @@ function formatDateLabel(iso) {
     day: "numeric"
   });
 }
+
 // ---------- Google / Calendar overlay ----------
 const GOOGLE_CLIENT_ID = "889787397602-gku8r94alb2b10s9lm35e2s2irbdntoq.apps.googleusercontent.com"; // same as in your HTML
 
@@ -46,50 +47,6 @@ function getCalendarAccessToken() {
     calendarTokenClient.requestAccessToken({ prompt: "" });
   });
 }
-function buildSlotRangesForEvent() {
-  if (!eventData) return [];
-
-  const slotsPerDay = eventData.grid.slotsPerDay;
-  const days = eventData.dates.length;
-  const slotMinutes = eventData.slotMinutes;
-  const ranges = [];
-
-  for (let day = 0; day < days; day++) {
-    const dateStr = eventData.dates[day]; // "YYYY-MM-DD"
-
-    for (let row = 0; row < slotsPerDay; row++) {
-      const startMinutes = eventData.startTimeMinutes + row * slotMinutes;
-
-      const h = Math.floor(startMinutes / 60)
-        .toString()
-        .padStart(2, "0");
-      const m = (startMinutes % 60).toString().padStart(2, "0");
-
-      const slotStart = new Date(`${dateStr}T${h}:${m}:00`);
-      const slotEnd = new Date(slotStart.getTime() + slotMinutes * 60_000);
-
-      const index = day * slotsPerDay + row;
-      ranges[index] = {
-        start: slotStart.getTime(),
-        end: slotEnd.getTime()
-      };
-    }
-  }
-
-  return ranges;
-}
-function applyCalendarOverlay() {
-  if (!cellsByIndex) return;
-
-  cellsByIndex.forEach((cell, idx) => {
-    if (calendarBusySlots.has(idx)) {
-      cell.classList.add("busy-calendar");
-    } else {
-      cell.classList.remove("busy-calendar");
-    }
-  });
-}
-
 // ---------- Theme helpers ----------
 function applyTheme(themePrefs) {
   const root = document.documentElement;
@@ -317,6 +274,50 @@ function initHomePage() {
     });
   }
 }
+function buildSlotRangesForEvent() {
+  if (!eventData) return [];
+
+  const slotsPerDay = eventData.grid.slotsPerDay;
+  const days = eventData.dates.length;
+  const slotMinutes = eventData.slotMinutes;
+  const ranges = [];
+
+  for (let day = 0; day < days; day++) {
+    const dateStr = eventData.dates[day]; // "YYYY-MM-DD"
+
+    for (let row = 0; row < slotsPerDay; row++) {
+      const startMinutes = eventData.startTimeMinutes + row * slotMinutes;
+
+      const h = Math.floor(startMinutes / 60)
+        .toString()
+        .padStart(2, "0");
+      const m = (startMinutes % 60).toString().padStart(2, "0");
+
+      const slotStart = new Date(`${dateStr}T${h}:${m}:00`);
+      const slotEnd = new Date(slotStart.getTime() + slotMinutes * 60_000);
+
+      const index = day * slotsPerDay + row;
+      ranges[index] = {
+        start: slotStart.getTime(),
+        end: slotEnd.getTime()
+      };
+    }
+  }
+
+  return ranges;
+}
+function applyCalendarOverlay() {
+  if (!cellsByIndex) return;
+
+  cellsByIndex.forEach((cell, idx) => {
+    if (calendarBusySlots.has(idx)) {
+      cell.classList.add("busy-calendar");
+    } else {
+      cell.classList.remove("busy-calendar");
+    }
+  });
+}
+// Load Google Calendar events for the event window and mark busy slots
 async function loadCalendarOverlayForCurrentEvent(statusEl) {
   if (!eventData) {
     statusEl.textContent = "Event data not loaded yet.";
@@ -409,6 +410,7 @@ async function loadCalendarOverlayForCurrentEvent(statusEl) {
   }
 }
 
+
 // ---------- Event page (grid + availability) ----------
 function initEventPage() {
   const eventId = getQueryParam("id");
@@ -475,14 +477,6 @@ function initEventPage() {
       alert(err.message || "Error loading event.");
     }
   }
-  const overlayBtn = document.getElementById("load-calendar-overlay");
-const overlayStatus = document.getElementById("calendar-overlay-status");
-
-if (overlayBtn && overlayStatus) {
-  overlayBtn.addEventListener("click", () => {
-    loadCalendarOverlayForCurrentEvent(overlayStatus);
-  });
-}
 
   function renderRangeDayOptions() {
     if (!rangeDaySelect || !eventData) return;
@@ -813,6 +807,15 @@ function renderBestSlots() {
   }
 
   loadEvent();
+    const overlayBtn = document.getElementById("load-calendar-overlay");
+const overlayStatus = document.getElementById("calendar-overlay-status");
+
+if (overlayBtn && overlayStatus) {
+  overlayBtn.addEventListener("click", () => {
+    loadCalendarOverlayForCurrentEvent(overlayStatus);
+  });
+}
+
 }
 
 // ---------- Boot ----------
