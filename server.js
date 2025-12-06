@@ -45,6 +45,7 @@ function formatTime(minutes) {
   const mm = m.toString().padStart(2, "0");
   return `${h}:${mm} ${ampm}`;
 }
+  // aggregate[row][day] = number of people available
 function computeAggregate(event) {
   const totalMinutes = event.endTimeMinutes - event.startTimeMinutes;
   const slotsPerDay = Math.floor(totalMinutes / event.slotMinutes);
@@ -88,6 +89,7 @@ function computeAggregate(event) {
 
   return { aggregate, who, maxCount, slotsPerDay };
 }
+
 
 // Create event
 app.post("/api/events", (req, res) => {

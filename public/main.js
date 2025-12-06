@@ -528,7 +528,7 @@ function initEventPage() {
           ? slot.names.join(", ")
           : "No one yet";
 
-      // This is the hover tooltip 👇
+      // This is where the browser tooltip comes from:
       li.title = `Available: ${namesLabel}`;
 
       li.innerHTML = `
@@ -544,6 +544,7 @@ function initEventPage() {
     participants.length
   } participant${participants.length === 1 ? "" : "s"} have responded.`;
 }
+
 
   async function saveAvailability() {
     if (!eventData) return;
