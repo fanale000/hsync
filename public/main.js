@@ -710,6 +710,10 @@ document.addEventListener("DOMContentLoaded", () => {
     loadCurrentUserAndTheme().then(initHomePage);
   }
   if (document.body.classList.contains("page-event")) {
+    // save event id when an event page is loaded so the topbar "Event" tab
+    // can return the user to the same poll later.
+    const cur = getQueryParam("id");
+    if (cur) setLastOpenedEvent(cur);
     loadCurrentUserAndTheme().then(initEventPage);
   }
   if (document.body.classList.contains("page-join")) {
@@ -718,4 +722,61 @@ document.addEventListener("DOMContentLoaded", () => {
   if (document.body.classList.contains("page-appearance")) {
     initAppearancePage();
   }
+
+  // Make the topbar Event link open the saved event id from any page.
+  // If none saved, fall back to lastJoinedEvent; if still none, go to /join.html.
+  try {
+    const eventLink = document.querySelector('.topbar-nav a[href="event.html"]');
+    if (eventLink) {
+      eventLink.addEventListener("click", (ev) => {
+        // allow modifier keys / middle-click to open in new tab normally
+        if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button === 1) return;
+        ev.preventDefault();
+        const lastOpened = getLastOpenedEvent();
+        const fallbackJoined = getLastJoinedEvent();
+        if (lastOpened) {
+          window.location.href = `/event.html?id=${encodeURIComponent(lastOpened)}`;
+          return;
+        }
+        if (fallbackJoined) {
+          // also set as opened for next time
+          setLastOpenedEvent(fallbackJoined);
+          window.location.href = `/event.html?id=${encodeURIComponent(fallbackJoined)}`;
+          return;
+        }
+        // nothing saved — send user to Join page to open a poll
+        alert("No event saved. Use Join to open a poll first.");
+        window.location.href = "/join.html";
+      });
+    }
+  } catch (e) {
+    // ignore
+    console.warn("Could not wire Event topbar link:", e);
+  }
 });
+
+// convenience: persist / read the last opened event id
+function setLastOpenedEvent(id) {
+  try {
+    if (id) localStorage.setItem("hsync:lastOpenedEvent", String(id));
+    else localStorage.removeItem("hsync:lastOpenedEvent");
+  } catch (e) {
+    // ignore storage errors
+  }
+}
+function getLastOpenedEvent() {
+  try {
+    return localStorage.getItem("hsync:lastOpenedEvent");
+  } catch (e) {
+    return null;
+  }
+}
+
+// also expose helper to read last-joined event (used as fallback)
+function getLastJoinedEvent() {
+  try {
+    return localStorage.getItem("hsync:lastJoinedEvent");
+  } catch (e) {
+    return null;
+  }
+}
