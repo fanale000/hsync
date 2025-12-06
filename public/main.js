@@ -205,7 +205,7 @@ function initHomePage() {
     const startTime = document.getElementById("start-time").value;
     const endTime = document.getElementById("end-time").value;
     const slotMinutes = Number(
-      document.getElementById("slot-minutes").value || 30
+      document.getElementById("slot-minutes").value || 30,
     );
 
     if (!title || !startDate || !endDate || !startTime || !endTime) {
@@ -234,7 +234,7 @@ function initHomePage() {
 
       const data = await res.json();
       const url = `${window.location.origin}/event.html?id=${encodeURIComponent(
-        data.id
+        data.id,
       )}`;
       window.location.href = url;
     } catch (err) {
@@ -359,7 +359,7 @@ async function loadCalendarOverlayForCurrentEvent(statusEl) {
         headers: {
           Authorization: "Bearer " + accessToken,
         },
-      }
+      },
     );
 
     if (!resp.ok) {
@@ -439,7 +439,7 @@ function initEventPage() {
   let eventData = null;
   let cellsByIndex = new Map();
   let mySlots = new Set(
-    JSON.parse(localStorage.getItem(mySlotsKey) || "[]").map(Number)
+    JSON.parse(localStorage.getItem(mySlotsKey) || "[]").map(Number),
   );
 
   // drag selection state
@@ -772,7 +772,7 @@ function initEventPage() {
             participantName: name,
             slots: slotsArray,
           }),
-        }
+        },
       );
 
       if (!res.ok) {

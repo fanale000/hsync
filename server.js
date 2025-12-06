@@ -18,7 +18,7 @@ app.use(
     name: "hsync_session",
     keys: ["a-very-secret-key-1", "a-very-secret-key-2"], // replace in real app
     maxAge: 7 * 24 * 60 * 60 * 1000, // 1 week
-  })
+  }),
 );
 
 app.use(express.static(path.join(__dirname, "public")));
@@ -53,12 +53,12 @@ function computeAggregate(event) {
 
   // Number of people available per slot
   const aggregate = Array.from({ length: slotsPerDay }, () =>
-    Array(days).fill(0)
+    Array(days).fill(0),
   );
 
   // Names per slot
   const who = Array.from({ length: slotsPerDay }, () =>
-    Array.from({ length: days }, () => [])
+    Array.from({ length: days }, () => []),
   );
 
   let maxCount = 0;
