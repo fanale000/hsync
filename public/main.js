@@ -529,7 +529,7 @@ function initEventPage() {
       if (count <= 0) continue;
 
       const names =
-        (whoGrid[row] && whoGrid[row][day]) ? whoGrid[row][day] : [];
+        whoGrid[row] && whoGrid[row][day] ? whoGrid[row][day] : [];
 
       results.push({
         dayIndex: day,
@@ -558,7 +558,7 @@ function initEventPage() {
           ? slot.names.join(", ")
           : "No one yet";
 
-      // This is where the browser tooltip comes from:
+      // This is the hover tooltip
       li.title = `Available: ${namesLabel}`;
 
       li.innerHTML = `

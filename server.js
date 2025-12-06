@@ -51,12 +51,12 @@ function computeAggregate(event) {
   const slotsPerDay = Math.floor(totalMinutes / event.slotMinutes);
   const days = event.dates.length;
 
-  // aggregate[row][day] = number of people available
+  // Number of people available per slot
   const aggregate = Array.from({ length: slotsPerDay }, () =>
     Array(days).fill(0)
   );
 
-  // who[row][day] = [ "Alice", "Bob", ... ]
+  // Names per slot
   const who = Array.from({ length: slotsPerDay }, () =>
     Array.from({ length: days }, () => [])
   );
@@ -71,24 +71,20 @@ function computeAggregate(event) {
       const row = idx % slotsPerDay;
       const col = Math.floor(idx / slotsPerDay);
 
-      if (
-        row >= 0 &&
-        row < slotsPerDay &&
-        col >= 0 &&
-        col < days
-      ) {
-        aggregate[row][col]++;
-        who[row][col].push(p.name);
+      if (row < 0 || row >= slotsPerDay || col < 0 || col >= days) continue;
 
-        if (aggregate[row][col] > maxCount) {
-          maxCount = aggregate[row][col];
-        }
+      aggregate[row][col]++;
+      who[row][col].push(p.name);
+
+      if (aggregate[row][col] > maxCount) {
+        maxCount = aggregate[row][col];
       }
     }
   }
 
   return { aggregate, who, maxCount, slotsPerDay };
 }
+
 
 
 // Create event
@@ -167,8 +163,8 @@ app.get("/api/events/:id", (req, res) => {
     startTimeMinutes: event.startTimeMinutes,
     endTimeMinutes: event.endTimeMinutes,
     grid: {
-      aggregate, // [row][dayIndex] -> count
-      who,       // [row][dayIndex] -> ["Name1","Name2",...]
+      aggregate, // [row][day] -> count
+      who,       // [row][day] -> ["Name1", "Name2"]
       maxCount,
       slotsPerDay
     },
