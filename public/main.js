@@ -1,13 +1,29 @@
-// public/main.js
+// public/main.js (refactored)
 
-// ---------- Helpers ----------
-function getQueryParam(name) {
-  const url = new URL(window.location.href);
-  return url.searchParams.get(name);
-}
+const GOOGLE_CLIENT_ID =
+  "19747295970-tp902n56girks9e8kegdl1vlod13l3ti.apps.googleusercontent.com";
+
+// ---------- Small helpers ----------
+const $ = (sel, ctx = document) => ctx.querySelector(sel);
+const $$ = (sel, ctx = document) => Array.from(ctx.querySelectorAll(sel));
+const getQueryParam = (name) => new URL(window.location.href).searchParams.get(name);
+
+const fetchJson = async (url, opts = {}) => {
+  const res = await fetch(url, opts);
+  const text = await res.text().catch(() => "");
+  let data = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    // leave data empty
+  }
+  if (!res.ok) {
+    throw new Error(data.error || `Request failed (${res.status})`);
+  }
+  return data;
+};
 
 function formatDateLabel(iso) {
-  // iso = YYYY-MM-DD
   const d = new Date(iso + "T00:00:00");
   if (isNaN(d.getTime())) return iso;
   return d.toLocaleDateString(undefined, {
@@ -18,9 +34,6 @@ function formatDateLabel(iso) {
 }
 
 // ---------- Google / Calendar overlay ----------
-const GOOGLE_CLIENT_ID =
-  "19747295970-tp902n56girks9e8kegdl1vlod13l3ti.apps.googleusercontent.com"; // same as in your HTML
-
 let calendarTokenClient = null;
 let calendarBusySlots = new Set();
 
@@ -30,7 +43,6 @@ function getCalendarAccessToken() {
       reject(new Error("Google API not loaded yet. Try again in a moment."));
       return;
     }
-
     if (!calendarTokenClient) {
       calendarTokenClient = google.accounts.oauth2.initTokenClient({
         client_id: GOOGLE_CLIENT_ID,
@@ -42,158 +54,98 @@ function getCalendarAccessToken() {
             reject(new Error("No access token received from Google."));
           }
         },
-        error_callback: (error) => {
-          reject(new Error(`Google OAuth error: ${error.type}`));
+        error_callback: (err) => {
+          reject(new Error(`Google OAuth error: ${err?.type || "unknown"}`));
         },
       });
     }
-
-    // Request the access token with explicit callback handling
     calendarTokenClient.requestAccessToken();
   });
 }
-// ---------- Theme helpers ----------
+
+// ---------- Theme / user helpers ----------
 function applyTheme(themePrefs) {
   const root = document.documentElement;
   if (!themePrefs) return;
-
-  if (themePrefs.theme) {
-    root.dataset.theme = themePrefs.theme;
-  }
-  if (themePrefs.density) {
-    root.dataset.density = themePrefs.density;
-  }
+  if (themePrefs.theme) root.dataset.theme = themePrefs.theme;
+  if (themePrefs.density) root.dataset.density = themePrefs.density;
 }
 
 async function loadCurrentUserAndTheme() {
   try {
-    const meRes = await fetch("/api/me");
-    const meData = await meRes.json().catch(() => ({ user: null }));
-    const user = meData.user || null;
-
+    const me = await fetchJson("/api/me").catch(() => ({ user: null }));
     let themePrefs = null;
     try {
-      const themeRes = await fetch("/api/theme");
-      if (themeRes.ok) {
-        themePrefs = await themeRes.json();
-      }
-    } catch {
-      // not signed in or no theme
-    }
-
-    applyTheme(themePrefs || { theme: "harvard", density: "comfortable" });
-
-    return { user, themePrefs };
+      themePrefs = await fetchJson("/api/theme").catch(() => null);
+    } catch {}
+    const prefs = themePrefs || { theme: "harvard", density: "comfortable" };
+    applyTheme(prefs);
+    return { user: (me && me.user) || null, themePrefs: themePrefs || null };
   } catch (err) {
-    console.error("Failed to load user/theme", err);
+    console.error("loadCurrentUserAndTheme:", err);
     applyTheme({ theme: "harvard", density: "comfortable" });
     return { user: null, themePrefs: null };
   }
 }
 
 async function sendGoogleTokenToBackend(idToken) {
-  const res = await fetch("/api/auth/google", {
+  return await fetchJson("/api/auth/google", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ idToken }),
-  });
-
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || "Failed to sign in with Google");
-  }
-
-  const data = await res.json();
-  return data.user; // { googleId, name, email }
+  }).then((d) => d.user);
 }
 
-// This callback will be called by Google Identity when sign-in succeeds
 window.handleGoogleCredentialResponse = async (response) => {
   try {
-    const idToken = response.credential;
-    const user = await sendGoogleTokenToBackend(idToken);
-
+    const user = await sendGoogleTokenToBackend(response.credential);
     console.log("Signed in as", user);
-
-    // Fill in name field if present
-    const nameInput = document.getElementById("participant-name");
-    if (nameInput && user && user.name) {
-      nameInput.value = user.name;
-    }
-
-    // Show badge
-    const badge = document.getElementById("signed-in-user");
-    if (badge && user && user.name) {
-      badge.textContent = `Signed in as ${user.name}`;
-    }
-
-    // If on event page, overlay calendar automatically
-    if (document.body.classList.contains("page-event")) {
-      const overlayStatus = document.getElementById("calendar-overlay-status");
-      if (overlayStatus && typeof loadCalendarOverlayForCurrentEvent === "function") {
-        // Wait a tick for eventData to load if needed
-        setTimeout(() => {
-          loadCalendarOverlayForCurrentEvent(overlayStatus);
-        }, 500);
-      }
+    const nameInput = $("#participant-name");
+    if (nameInput && user?.name) nameInput.value = user.name;
+    const badge = $("#signed-in-user");
+    if (badge) badge.textContent = user?.name ? `Signed in as ${user.name}` : "Signed in";
+    if (document.body.classList.contains("page-event") && typeof loadCalendarOverlayForCurrentEvent === "function") {
+      setTimeout(() => {
+        const status = $("#calendar-overlay-status");
+        if (status) loadCalendarOverlayForCurrentEvent(status);
+      }, 500);
     }
   } catch (err) {
     console.error(err);
     alert(err.message || "Google sign-in failed.");
   }
 };
+
 // ---------- Appearance page ----------
 function initAppearancePage() {
-  const form = document.getElementById("appearance-form");
-  const warningEl = document.getElementById("appearance-warning");
-  const badgeEl = document.getElementById("signed-in-user");
-
+  const form = $("#appearance-form");
+  const warningEl = $("#appearance-warning");
+  const badgeEl = $("#signed-in-user");
   if (!form) return;
 
-  // Load current user + theme, then hydrate UI
   loadCurrentUserAndTheme().then(({ user, themePrefs }) => {
     if (!user) {
-      warningEl.textContent =
-        "Sign in with Google on the Home or Event page to save your appearance settings.";
-      badgeEl.textContent = "Not signed in";
+      warningEl && (warningEl.textContent = "Sign in with Google on the Home or Event page to save your appearance settings.");
+      badgeEl && (badgeEl.textContent = "Not signed in");
     } else {
-      badgeEl.textContent = `Signed in as ${user.name || user.email}`;
-      warningEl.textContent = "";
+      badgeEl && (badgeEl.textContent = `Signed in as ${user.name || user.email}`);
+      warningEl && (warningEl.textContent = "");
     }
-
     const prefs = themePrefs || { theme: "harvard", density: "comfortable" };
-
-    // Apply radio selections
-    const themeInputs = form.querySelectorAll('input[name="theme"]');
-    themeInputs.forEach((inp) => {
-      inp.checked = inp.value === prefs.theme;
-    });
-
-    const densityInputs = form.querySelectorAll('input[name="density"]');
-    densityInputs.forEach((inp) => {
-      inp.checked = inp.value === prefs.density;
-    });
+    $$('input[name="theme"]', form).forEach((inp) => (inp.checked = inp.value === prefs.theme));
+    $$('input[name="density"]', form).forEach((inp) => (inp.checked = inp.value === prefs.density));
   });
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-
     const theme = form.querySelector('input[name="theme"]:checked')?.value;
     const density = form.querySelector('input[name="density"]:checked')?.value;
-
     try {
-      const res = await fetch("/api/theme", {
+      const data = await fetchJson("/api/theme", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ theme, density }),
       });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to save appearance.");
-      }
-
-      const data = await res.json();
       applyTheme(data.theme);
       alert("Appearance saved!");
     } catch (err) {
@@ -205,52 +157,30 @@ function initAppearancePage() {
 
 // ---------- Home page (create / join) ----------
 function initHomePage() {
-  const form = document.getElementById("create-event-form");
-  const joinInput = document.getElementById("event-id-input");
-  const joinBtn = document.getElementById("join-button");
-
+  const form = $("#create-event-form");
+  const joinInput = $("#event-id-input");
+  const joinBtn = $("#join-button");
   if (!form) return;
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-
-    const title = document.getElementById("title").value.trim();
-    const startDate = document.getElementById("start-date").value;
-    const endDate = document.getElementById("end-date").value;
-    const startTime = document.getElementById("start-time").value;
-    const endTime = document.getElementById("end-time").value;
-    const slotMinutes = Number(
-      document.getElementById("slot-minutes").value || 30,
-    );
-
+    const title = $("#title").value.trim();
+    const startDate = $("#start-date").value;
+    const endDate = $("#end-date").value;
+    const startTime = $("#start-time").value;
+    const endTime = $("#end-time").value;
+    const slotMinutes = Number($("#slot-minutes").value || 30);
     if (!title || !startDate || !endDate || !startTime || !endTime) {
       alert("Please fill out all fields.");
       return;
     }
-
     try {
-      const res = await fetch("/api/events", {
+      const data = await fetchJson("/api/events", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title,
-          startDate,
-          endDate,
-          startTime,
-          endTime,
-          slotMinutes,
-        }),
+        body: JSON.stringify({ title, startDate, endDate, startTime, endTime, slotMinutes }),
       });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to create event.");
-      }
-
-      const data = await res.json();
-      const url = `${window.location.origin}/event.html?id=${encodeURIComponent(
-        data.id,
-      )}`;
+      const url = `${window.location.origin}/event.html?id=${encodeURIComponent(data.id)}`;
       window.location.href = url;
     } catch (err) {
       console.error(err);
@@ -262,35 +192,27 @@ function initHomePage() {
     joinBtn.addEventListener("click", () => {
       const raw = joinInput.value.trim();
       if (!raw) return;
-
       let id = raw;
       try {
         const maybeUrl = new URL(raw);
         const match = maybeUrl.searchParams.get("id");
-        if (match) {
-          id = match;
-        } else {
-          // maybe last path segment
+        if (match) id = match;
+        else {
           const parts = maybeUrl.pathname.split("/");
-          id = parts[parts.length - 1] || parts[parts.length - 2];
-          if (id === "event.html") {
-            id = maybeUrl.searchParams.get("id") || "";
-          }
+          id = parts[parts.length - 1] || parts[parts.length - 2] || "";
+          if (id === "event.html") id = maybeUrl.searchParams.get("id") || "";
         }
       } catch {
-        // not a URL, treat as plain id
+        // plain id
       }
-
       if (!id) {
         alert("Could not find an event id in that link.");
         return;
       }
-
       window.location.href = `/event.html?id=${encodeURIComponent(id)}`;
     });
   }
 }
-
 
 // ---------- Event page (grid + availability) ----------
 function initEventPage() {
@@ -300,56 +222,47 @@ function initEventPage() {
     return;
   }
 
-  const gridEl = document.getElementById("availability-grid");
-  const eventTitleEl = document.getElementById("event-title");
-  const shareLinkEl = document.getElementById("share-link");
-  const rangeDaySelect = document.getElementById("range-day");
-  const rangeFromInput = document.getElementById("range-from");
-  const rangeToInput = document.getElementById("range-to");
-  const rangeApplyBtn = document.getElementById("range-apply");
-  const bestSlotsList = document.getElementById("best-slots");
-  const participantCountEl = document.getElementById("participant-count");
-
-  const participantNameInput = document.getElementById("participant-name");
-  const saveBtn = document.getElementById("save-availability");
-  const clearBtn = document.getElementById("clear-availability");
+  // cached DOM
+  const gridEl = $("#availability-grid");
+  const eventTitleEl = $("#event-title");
+  const shareLinkEl = $("#share-link");
+  const rangeDaySelect = $("#range-day");
+  const rangeFromInput = $("#range-from");
+  const rangeToInput = $("#range-to");
+  const rangeApplyBtn = $("#range-apply");
+  const bestSlotsList = $("#best-slots");
+  const participantCountEl = $("#participant-count");
+  const participantNameInput = $("#participant-name");
+  const saveBtn = $("#save-availability");
+  const clearBtn = $("#clear-availability");
+  const overlayBtn = $("#load-calendar-overlay");
+  const overlayStatus = $("#calendar-overlay-status");
 
   const mySlotsKey = `hsync:${eventId}:mySlots`;
   const myNameKey = `hsync:${eventId}:myName`;
 
   let eventData = null;
   let cellsByIndex = new Map();
-  let mySlots = new Set(
-    JSON.parse(localStorage.getItem(mySlotsKey) || "[]").map(Number),
-  );
+  let mySlots = new Set(JSON.parse(localStorage.getItem(mySlotsKey) || "[]").map(Number));
 
-  // drag selection state
+  // drag selection state (global)
   let isPointerDown = false;
-  let dragMode = null; // "add" or "remove"
+  let dragMode = null;
 
-  // Pre-fill participant name from localStorage
+  // reusable: persist name and share link
   const storedName = localStorage.getItem(myNameKey);
-  if (storedName && participantNameInput) {
-    participantNameInput.value = storedName;
-  }
+  if (storedName && participantNameInput) participantNameInput.value = storedName;
+  if (shareLinkEl) shareLinkEl.value = window.location.href;
 
-  // Set share link
-  if (shareLinkEl) {
-    shareLinkEl.value = window.location.href;
-  }
+  window.addEventListener("pointerup", () => {
+    isPointerDown = false;
+    dragMode = null;
+  });
 
   async function loadEvent() {
     try {
-      const res = await fetch(`/api/events/${encodeURIComponent(eventId)}`);
-      if (!res.ok) {
-        throw new Error("Event not found.");
-      }
-      eventData = await res.json();
-
-      if (eventTitleEl) {
-        eventTitleEl.textContent = eventData.title || "Availability poll";
-      }
-
+      eventData = await fetchJson(`/api/events/${encodeURIComponent(eventId)}`);
+      if (eventTitleEl) eventTitleEl.textContent = eventData.title || "Availability poll";
       renderRangeDayOptions();
       renderGrid();
       renderBestSlots();
@@ -370,94 +283,16 @@ function initEventPage() {
     });
   }
 
-  function renderGrid() {
-    if (!gridEl || !eventData) return;
-
-    gridEl.innerHTML = "";
-    cellsByIndex = new Map();
-
-    const days = eventData.dates.length;
-    const rows = eventData.grid.slotsPerDay;
-    const maxCount = eventData.grid.maxCount || 0;
-    const aggregate = eventData.grid.aggregate || [];
-
-    // Set up CSS grid templates
-    const templateCols = `minmax(60px, 80px) repeat(${days}, minmax(56px, 1fr))`;
-
-    // Header row: blank time cell + day headers
-    const headerRow = document.createElement("div");
-    headerRow.className = "grid-header-row";
-    headerRow.style.gridTemplateColumns = templateCols;
-
-    const blank = document.createElement("div");
-    blank.className = "grid-time-cell";
-    headerRow.appendChild(blank);
-
-    eventData.dates.forEach((iso) => {
-      const dayCell = document.createElement("div");
-      dayCell.className = "grid-day-header";
-      dayCell.textContent = formatDateLabel(iso);
-      headerRow.appendChild(dayCell);
-    });
-
-    gridEl.appendChild(headerRow);
-
-    // Body rows
-    for (let row = 0; row < rows; row++) {
-      const rowEl = document.createElement("div");
-      rowEl.className = "grid-row";
-      rowEl.style.gridTemplateColumns = templateCols;
-
-      // time label
-      const timeCell = document.createElement("div");
-      timeCell.className = "grid-time-cell";
-      timeCell.textContent = eventData.times[row] || "";
-      rowEl.appendChild(timeCell);
-
-      // day cells
-      for (let day = 0; day < days; day++) {
-        const slotIndex = day * rows + row;
-        const cell = document.createElement("div");
-        cell.className = "grid-cell";
-        cell.dataset.index = String(slotIndex);
-
-        const count = (aggregate[row] && aggregate[row][day]) || 0;
-        const level = maxCount === 0 ? 0 : Math.ceil((count / maxCount) * 4);
-        cell.classList.add(`heat-${level}`);
-
-        if (mySlots.has(slotIndex)) {
-          cell.classList.add("my-slot");
-        }
-
-        attachCellListeners(cell);
-        cellsByIndex.set(slotIndex, cell);
-
-        rowEl.appendChild(cell);
-      }
-
-      gridEl.appendChild(rowEl);
-    }
-
-    // Global pointer up to end drag
-    window.addEventListener("pointerup", () => {
-      isPointerDown = false;
-      dragMode = null;
-    });
-  }
-
   function attachCellListeners(cell) {
     cell.addEventListener("pointerdown", (e) => {
       e.preventDefault();
       const idx = Number(cell.dataset.index);
       const currentlySelected = mySlots.has(idx);
-
       isPointerDown = true;
       dragMode = currentlySelected ? "remove" : "add";
-
       toggleSlot(idx, dragMode === "add");
     });
-
-    cell.addEventListener("pointerenter", (e) => {
+    cell.addEventListener("pointerenter", () => {
       if (!isPointerDown || !dragMode) return;
       const idx = Number(cell.dataset.index);
       toggleSlot(idx, dragMode === "add");
@@ -468,7 +303,6 @@ function initEventPage() {
     if (!Number.isInteger(idx)) return;
     const cell = cellsByIndex.get(idx);
     if (!cell) return;
-
     if (makeSelected) {
       mySlots.add(idx);
       cell.classList.add("my-slot");
@@ -476,9 +310,61 @@ function initEventPage() {
       mySlots.delete(idx);
       cell.classList.remove("my-slot");
     }
-
-    // Persist locally
     localStorage.setItem(mySlotsKey, JSON.stringify(Array.from(mySlots)));
+  }
+
+  function renderGrid() {
+    if (!gridEl || !eventData) return;
+    gridEl.innerHTML = "";
+    cellsByIndex = new Map();
+    const days = eventData.dates.length;
+    const rows = eventData.grid.slotsPerDay;
+    const maxCount = eventData.grid.maxCount || 0;
+    const aggregate = eventData.grid.aggregate || [];
+
+    const templateCols = `minmax(60px, 80px) repeat(${days}, minmax(56px, 1fr))`;
+
+    const headerRow = document.createElement("div");
+    headerRow.className = "grid-header-row";
+    headerRow.style.gridTemplateColumns = templateCols;
+    const blank = document.createElement("div");
+    blank.className = "grid-time-cell";
+    headerRow.appendChild(blank);
+    eventData.dates.forEach((iso) => {
+      const dayCell = document.createElement("div");
+      dayCell.className = "grid-day-header";
+      dayCell.textContent = formatDateLabel(iso);
+      headerRow.appendChild(dayCell);
+    });
+    gridEl.appendChild(headerRow);
+
+    for (let row = 0; row < rows; row++) {
+      const rowEl = document.createElement("div");
+      rowEl.className = "grid-row";
+      rowEl.style.gridTemplateColumns = templateCols;
+
+      const timeCell = document.createElement("div");
+      timeCell.className = "grid-time-cell";
+      timeCell.textContent = eventData.times[row] || "";
+      rowEl.appendChild(timeCell);
+
+      for (let day = 0; day < days; day++) {
+        const slotIndex = day * rows + row;
+        const cell = document.createElement("div");
+        cell.className = "grid-cell";
+        cell.dataset.index = String(slotIndex);
+
+        const count = (aggregate[row] && aggregate[row][day]) || 0;
+        const level = maxCount === 0 ? 0 : Math.ceil((count / maxCount) * 4);
+        cell.classList.add(`heat-${level}`);
+        if (mySlots.has(slotIndex)) cell.classList.add("my-slot");
+
+        attachCellListeners(cell);
+        cellsByIndex.set(slotIndex, cell);
+        rowEl.appendChild(cell);
+      }
+      gridEl.appendChild(rowEl);
+    }
   }
 
   function applyRangeSelection() {
@@ -486,70 +372,49 @@ function initEventPage() {
     const dayIndex = Number(rangeDaySelect.value || 0);
     const fromValue = rangeFromInput.value;
     const toValue = rangeToInput.value;
-
     if (!fromValue || !toValue) {
       alert("Please fill both From and To times.");
       return;
     }
-
-    let fromMinutes;
-    let toMinutes;
-    try {
-      const [fh, fm] = fromValue.split(":").map(Number);
-      const [th, tm] = toValue.split(":").map(Number);
-      fromMinutes = fh * 60 + fm;
-      toMinutes = th * 60 + tm;
-    } catch {
-      alert("Invalid time values.");
-      return;
-    }
-
+    const [fh, fm] = fromValue.split(":").map(Number);
+    const [th, tm] = toValue.split(":").map(Number);
+    const fromMinutes = fh * 60 + fm;
+    const toMinutes = th * 60 + tm;
     if (toMinutes <= fromMinutes) {
       alert("End time must be after start time.");
       return;
     }
-
     const start = eventData.startTimeMinutes;
     const slot = eventData.slotMinutes;
     const rows = eventData.grid.slotsPerDay;
-
     const clampToRow = (mins) => {
       const offset = mins - start;
       const raw = Math.floor(offset / slot);
       return Math.max(0, Math.min(rows - 1, raw));
     };
-
     const startRow = clampToRow(fromMinutes);
-    const endRow = clampToRow(toMinutes - 1); // inclusive
-
+    const endRow = clampToRow(toMinutes - 1);
     for (let row = startRow; row <= endRow; row++) {
       const idx = dayIndex * rows + row;
       toggleSlot(idx, true);
     }
   }
+
   function renderBestSlots() {
     if (!eventData || !bestSlotsList || !participantCountEl) return;
-
     bestSlotsList.innerHTML = "";
-
     const agg = eventData.grid.aggregate || [];
     const whoGrid = eventData.grid.who || [];
     const rows = eventData.grid.slotsPerDay;
     const days = eventData.dates.length;
     const times = eventData.times;
     const participants = eventData.participants || [];
-
     const results = [];
-
-    // Build a list of all non-empty slots with counts + names
     for (let day = 0; day < days; day++) {
       for (let row = 0; row < rows; row++) {
         const count = (agg[row] && agg[row][day]) || 0;
         if (count <= 0) continue;
-
-        const names =
-          whoGrid[row] && whoGrid[row][day] ? whoGrid[row][day] : [];
-
+        const names = (whoGrid[row] && whoGrid[row][day]) || [];
         results.push({
           dayIndex: day,
           rowIndex: row,
@@ -560,12 +425,8 @@ function initEventPage() {
         });
       }
     }
-
-    // Sort by most people available
     results.sort((a, b) => b.count - a.count);
-
     const top = results.slice(0, 5);
-
     if (top.length === 0) {
       const li = document.createElement("li");
       li.textContent = "No availability submitted yet.";
@@ -573,23 +434,14 @@ function initEventPage() {
     } else {
       top.forEach((slot) => {
         const li = document.createElement("li");
-
-        // First row: date/time and count
         const mainRow = document.createElement("div");
         mainRow.className = "best-slot-main";
-        mainRow.innerHTML = `
-        <span>${formatDateLabel(slot.dateIso)} @ ${slot.timeLabel}</span>
-        <span>${slot.count} available</span>
-      `;
-
+        mainRow.innerHTML = `<span>${formatDateLabel(slot.dateIso)} @ ${slot.timeLabel}</span><span>${slot.count} available</span>`;
         li.appendChild(mainRow);
 
-        // Second row: dropdown of participants
         const participantsRow = document.createElement("div");
         participantsRow.className = "best-slot-participants";
-
-        const names = slot.names && slot.names.length ? slot.names : [];
-
+        const names = slot.names || [];
         if (names.length === 0) {
           const label = document.createElement("span");
           label.textContent = "No one has picked this time yet.";
@@ -602,12 +454,9 @@ function initEventPage() {
           const select = document.createElement("select");
           select.className = "participant-dropdown";
 
-          // Placeholder option showing how many people
           const placeholder = document.createElement("option");
           placeholder.value = "";
-          placeholder.textContent = `${names.length} participant${
-            names.length > 1 ? "s" : ""
-          }`;
+          placeholder.textContent = `${names.length} participant${names.length > 1 ? "s" : ""}`;
           placeholder.disabled = true;
           placeholder.selected = true;
           select.appendChild(placeholder);
@@ -618,18 +467,13 @@ function initEventPage() {
             opt.textContent = name;
             select.appendChild(opt);
           });
-
           participantsRow.appendChild(select);
         }
-
         li.appendChild(participantsRow);
         bestSlotsList.appendChild(li);
       });
     }
-
-    participantCountEl.textContent = `${participants.length} participant${
-      participants.length === 1 ? "" : "s"
-    } have responded.`;
+    participantCountEl.textContent = `${participants.length} participant${participants.length === 1 ? "" : "s"} have responded.`;
   }
 
   async function saveAvailability() {
@@ -640,31 +484,16 @@ function initEventPage() {
       participantNameInput.focus();
       return;
     }
-
     const slotsArray = Array.from(mySlots);
-
     try {
-      const res = await fetch(
-        `/api/events/${encodeURIComponent(eventId)}/availability`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            participantName: name,
-            slots: slotsArray,
-          }),
-        },
-      );
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to save availability.");
-      }
-
+      await fetchJson(`/api/events/${encodeURIComponent(eventId)}/availability`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ participantName: name, slots: slotsArray }),
+      });
       localStorage.setItem(myNameKey, name);
       alert("Availability saved!");
-
-      await loadEvent(); // refresh aggregates & best slots
+      await loadEvent();
     } catch (err) {
       console.error(err);
       alert(err.message || "Error saving availability.");
@@ -679,71 +508,49 @@ function initEventPage() {
 
   function buildSlotRangesForEvent() {
     if (!eventData) return [];
-
     const slotsPerDay = eventData.grid.slotsPerDay;
     const days = eventData.dates.length;
     const slotMinutes = eventData.slotMinutes;
     const ranges = [];
-
     for (let day = 0; day < days; day++) {
-      const dateStr = eventData.dates[day]; // "YYYY-MM-DD"
-
+      const dateStr = eventData.dates[day];
       for (let row = 0; row < slotsPerDay; row++) {
         const startMinutes = eventData.startTimeMinutes + row * slotMinutes;
-
-        const h = Math.floor(startMinutes / 60)
-          .toString()
-          .padStart(2, "0");
+        const h = Math.floor(startMinutes / 60).toString().padStart(2, "0");
         const m = (startMinutes % 60).toString().padStart(2, "0");
-
         const slotStart = new Date(`${dateStr}T${h}:${m}:00`);
         const slotEnd = new Date(slotStart.getTime() + slotMinutes * 60_000);
-
         const index = day * slotsPerDay + row;
-        ranges[index] = {
-          start: slotStart.getTime(),
-          end: slotEnd.getTime(),
-        };
+        ranges[index] = { start: slotStart.getTime(), end: slotEnd.getTime() };
       }
     }
-
     return ranges;
   }
 
   function applyCalendarOverlay() {
     if (!cellsByIndex) return;
-
     cellsByIndex.forEach((cell, idx) => {
-      if (calendarBusySlots.has(idx)) {
-        cell.classList.add("busy-calendar");
-      } else {
-        cell.classList.remove("busy-calendar");
-      }
+      cell.classList.toggle("busy-calendar", calendarBusySlots.has(idx));
     });
   }
 
   async function loadCalendarOverlayForCurrentEvent(statusEl) {
     if (!eventData) {
-      statusEl.textContent = "Event data not loaded yet.";
+      statusEl && (statusEl.textContent = "Event data not loaded yet.");
       return;
     }
-
     try {
-      statusEl.textContent = "Contacting Google Calendar...";
-
+      statusEl && (statusEl.textContent = "Contacting Google Calendar...");
       const accessToken = await getCalendarAccessToken();
 
-      // Compute timeMin and timeMax for the event range
       const firstDate = eventData.dates[0];
       const lastDate = eventData.dates[eventData.dates.length - 1];
 
-      function composeISO(dateStr, minutes) {
-        const h = Math.floor(minutes / 60)
-          .toString()
-          .padStart(2, "0");
+      const composeISO = (dateStr, minutes) => {
+        const h = Math.floor(minutes / 60).toString().padStart(2, "0");
         const m = (minutes % 60).toString().padStart(2, "0");
         return new Date(`${dateStr}T${h}:${m}:00`);
-      }
+      };
 
       const startDateTime = composeISO(firstDate, eventData.startTimeMinutes);
       const endDateTime = composeISO(lastDate, eventData.endTimeMinutes);
@@ -756,105 +563,62 @@ function initEventPage() {
       });
 
       const resp = await fetch(
-        "https://www.googleapis.com/calendar/v3/calendars/primary/events?" +
-          params.toString(),
-        {
-          headers: {
-            Authorization: "Bearer " + accessToken,
-          },
-        },
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events?" + params.toString(),
+        { headers: { Authorization: "Bearer " + accessToken } },
       );
 
       if (!resp.ok) {
-        const text = await resp.text();
+        const text = await resp.text().catch(() => "");
         throw new Error(`Google Calendar error: ${resp.status} ${text}`);
       }
 
       const data = await resp.json();
-
       const ranges = buildSlotRangesForEvent();
       calendarBusySlots.clear();
 
       const items = data.items || [];
-
       for (const ev of items) {
-        // all-day events have .date, normal events have .dateTime
-        const startStr =
-          (ev.start && (ev.start.dateTime || ev.start.date + "T00:00:00")) ||
-          null;
-        const endStr =
-          (ev.end && (ev.end.dateTime || ev.end.date + "T23:59:59")) || null;
-
+        const startStr = ev.start && (ev.start.dateTime || (ev.start.date && ev.start.date + "T00:00:00"));
+        const endStr = ev.end && (ev.end.dateTime || (ev.end.date && ev.end.date + "T23:59:59"));
         if (!startStr || !endStr) continue;
-
         const evStart = new Date(startStr).getTime();
         const evEnd = new Date(endStr).getTime();
-
         for (let i = 0; i < ranges.length; i++) {
           const r = ranges[i];
           if (!r) continue;
-          // overlap check: [slotStart, slotEnd) vs [evStart, evEnd)
-          if (r.start < evEnd && r.end > evStart) {
-            calendarBusySlots.add(i);
-          }
+          if (r.start < evEnd && r.end > evStart) calendarBusySlots.add(i);
         }
       }
 
       applyCalendarOverlay();
-
-      statusEl.textContent =
-        items.length === 0
-          ? "No calendar events during this poll window."
-          : `Overlay applied from ${items.length} calendar event${
-              items.length === 1 ? "" : "s"
-            }.`;
+      statusEl && (statusEl.textContent = items.length === 0 ? "No calendar events during this poll window." : `Overlay applied from ${items.length} calendar event${items.length === 1 ? "" : "s"}.`);
     } catch (err) {
       console.error(err);
-      statusEl.textContent = err.message || "Failed to load calendar overlay.";
+      statusEl && (statusEl.textContent = err.message || "Failed to load calendar overlay.");
     }
   }
 
-  // Listeners
-  if (saveBtn) {
-    saveBtn.addEventListener("click", saveAvailability);
-  }
-  if (clearBtn) {
-    clearBtn.addEventListener("click", clearMyAvailability);
-  }
-  if (rangeApplyBtn) {
-    rangeApplyBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      applyRangeSelection();
-    });
-  }
+  // listeners
+  saveBtn && saveBtn.addEventListener("click", saveAvailability);
+  clearBtn && clearBtn.addEventListener("click", clearMyAvailability);
+  rangeApplyBtn && rangeApplyBtn.addEventListener("click", (e) => { e.preventDefault(); applyRangeSelection(); });
+  overlayBtn && overlayStatus && overlayBtn.addEventListener("click", () => loadCalendarOverlayForCurrentEvent(overlayStatus));
 
   loadEvent();
-  const overlayBtn = document.getElementById("load-calendar-overlay");
-  const overlayStatus = document.getElementById("calendar-overlay-status");
 
-  if (overlayBtn && overlayStatus) {
-    overlayBtn.addEventListener("click", () => {
-      loadCalendarOverlayForCurrentEvent(overlayStatus);
-    });
-  }
+  // expose overlay loader for Google sign-in callback
+  window.loadCalendarOverlayForCurrentEvent = loadCalendarOverlayForCurrentEvent;
 }
 
 // ---------- Boot ----------
 document.addEventListener("DOMContentLoaded", () => {
   if (document.body.classList.contains("page-home")) {
-    loadCurrentUserAndTheme().then(() => {
-      initHomePage();
-    });
+    loadCurrentUserAndTheme().then(initHomePage);
   }
-
   if (document.body.classList.contains("page-event")) {
-    loadCurrentUserAndTheme().then(() => {
-      initEventPage();
-    });
+    loadCurrentUserAndTheme().then(initEventPage);
   }
-
   if (document.body.classList.contains("page-appearance")) {
-    // initAppearancePage will call loadCurrentUserAndTheme itself
     initAppearancePage();
   }
 });
