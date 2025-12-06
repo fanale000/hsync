@@ -16,6 +16,45 @@ function formatDateLabel(iso) {
     day: "numeric"
   });
 }
+// ---------- Theme helpers ----------
+function applyTheme(themePrefs) {
+  const root = document.documentElement;
+  if (!themePrefs) return;
+
+  if (themePrefs.theme) {
+    root.dataset.theme = themePrefs.theme;
+  }
+  if (themePrefs.density) {
+    root.dataset.density = themePrefs.density;
+  }
+}
+
+async function loadCurrentUserAndTheme() {
+  try {
+    const meRes = await fetch("/api/me");
+    const meData = await meRes.json().catch(() => ({ user: null }));
+    const user = meData.user || null;
+
+    let themePrefs = null;
+    try {
+      const themeRes = await fetch("/api/theme");
+      if (themeRes.ok) {
+        themePrefs = await themeRes.json();
+      }
+    } catch {
+      // not signed in or no theme
+    }
+
+    applyTheme(themePrefs || { theme: "harvard", density: "comfortable" });
+
+    return { user, themePrefs };
+  } catch (err) {
+    console.error("Failed to load user/theme", err);
+    applyTheme({ theme: "harvard", density: "comfortable" });
+    return { user: null, themePrefs: null };
+  }
+}
+
 async function sendGoogleTokenToBackend(idToken) {
   const res = await fetch("/api/auth/google", {
     method: "POST",
@@ -56,6 +95,66 @@ window.handleGoogleCredentialResponse = async (response) => {
     alert(err.message || "Google sign-in failed.");
   }
 };
+// ---------- Appearance page ----------
+function initAppearancePage() {
+  const form = document.getElementById("appearance-form");
+  const warningEl = document.getElementById("appearance-warning");
+  const badgeEl = document.getElementById("signed-in-user");
+
+  if (!form) return;
+
+  // Load current user + theme, then hydrate UI
+  loadCurrentUserAndTheme().then(({ user, themePrefs }) => {
+    if (!user) {
+      warningEl.textContent =
+        "Sign in with Google on the Home or Event page to save your appearance settings.";
+      badgeEl.textContent = "Not signed in";
+    } else {
+      badgeEl.textContent = `Signed in as ${user.name || user.email}`;
+      warningEl.textContent = "";
+    }
+
+    const prefs = themePrefs || { theme: "harvard", density: "comfortable" };
+
+    // Apply radio selections
+    const themeInputs = form.querySelectorAll('input[name="theme"]');
+    themeInputs.forEach((inp) => {
+      inp.checked = inp.value === prefs.theme;
+    });
+
+    const densityInputs = form.querySelectorAll('input[name="density"]');
+    densityInputs.forEach((inp) => {
+      inp.checked = inp.value === prefs.density;
+    });
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    const theme = form.querySelector('input[name="theme"]:checked')?.value;
+    const density = form.querySelector('input[name="density"]:checked')?.value;
+
+    try {
+      const res = await fetch("/api/theme", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ theme, density })
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to save appearance.");
+      }
+
+      const data = await res.json();
+      applyTheme(data.theme);
+      alert("Appearance saved!");
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Error saving appearance (are you signed in?)");
+    }
+  });
+}
 
 // ---------- Home page (create / join) ----------
 function initHomePage() {
@@ -508,9 +607,19 @@ function initEventPage() {
 // ---------- Boot ----------
 document.addEventListener("DOMContentLoaded", () => {
   if (document.body.classList.contains("page-home")) {
-    initHomePage();
+    loadCurrentUserAndTheme().then(() => {
+      initHomePage();
+    });
   }
+
   if (document.body.classList.contains("page-event")) {
-    initEventPage();
+    loadCurrentUserAndTheme().then(() => {
+      initEventPage();
+    });
+  }
+
+  if (document.body.classList.contains("page-appearance")) {
+    // initAppearancePage will call loadCurrentUserAndTheme itself
+    initAppearancePage();
   }
 });

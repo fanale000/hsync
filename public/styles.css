@@ -13,6 +13,37 @@
   --shadow-soft: 0 8px 18px rgba(15, 23, 42, 0.08);
 }
 
+/* Theme variants (default is Harvard via :root) */
+
+:root[data-theme="harvard"] {
+  --crimson: #a51c30;
+  --crimson-soft: #fcebed;
+  --crimson-dark: #7b1423;
+}
+
+:root[data-theme="midnight"] {
+  --crimson: #1d4ed8;
+  --crimson-soft: #e0ecff;
+  --crimson-dark: #1e3a8a;
+}
+
+:root[data-theme="forest"] {
+  --crimson: #15803d;
+  --crimson-soft: #dcfce7;
+  --crimson-dark: #166534;
+}
+
+/* Density variants for grid cells */
+:root[data-density="comfortable"] .grid-cell {
+  min-width: 2.3rem;
+  min-height: 2.1rem;
+}
+
+:root[data-density="compact"] .grid-cell {
+  min-width: 1.8rem;
+  min-height: 1.6rem;
+}
+
 *,
 *::before,
 *::after {
@@ -44,6 +75,40 @@ body {
   justify-content: space-between;
   gap: 0.75rem;
 }
+
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.topbar-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+}
+
+.topbar-link {
+  color: rgba(255, 255, 255, 0.85);
+  text-decoration: none;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  transition: background 0.15s ease, color 0.15s ease, border 0.15s ease;
+}
+
+.topbar-link:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.topbar-link--active {
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--crimson-dark);
+  border-color: transparent;
+}
+
 
 .brand {
   display: inline-flex;
@@ -127,6 +192,38 @@ body {
   display: flex;
   gap: 0.75rem;
   flex-wrap: wrap;
+}
+
+.signed-in-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0.35rem 0 0.75rem;
+}
+
+.appearance-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 0.75rem;
+}
+
+.settings-group h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.9rem;
+}
+
+.radio-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  padding: 0.2rem 0;
 }
 
 label {

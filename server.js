@@ -230,6 +230,9 @@ async function verifyGoogleToken(idToken) {
 
 // Simple in-memory user store (for demo)
 const users = {}; // key: googleId -> { googleId, name, email }
+// userId -> appearance settings
+const themes = {}; // { [googleId]: { theme: "harvard", density: "comfortable" } }
+
 
 app.post("/api/auth/google", async (req, res) => {
   try {
@@ -269,6 +272,45 @@ app.get("/api/me", (req, res) => {
 app.post("/api/logout", (req, res) => {
   req.session = null;
   res.json({ ok: true });
+});
+
+// Default appearance if user has no saved theme
+const defaultTheme = {
+  theme: "harvard",
+  density: "comfortable"
+};
+
+// Get appearance for current logged-in user
+app.get("/api/theme", (req, res) => {
+  if (!req.session.user) {
+    return res.status(401).json({ error: "Not signed in" });
+  }
+  const googleId = req.session.user.googleId;
+  const prefs = themes[googleId] || defaultTheme;
+  res.json(prefs);
+});
+
+// Save appearance for current logged-in user
+app.post("/api/theme", (req, res) => {
+  if (!req.session.user) {
+    return res.status(401).json({ error: "Not signed in" });
+  }
+  const googleId = req.session.user.googleId;
+  const { theme, density } = req.body || {};
+
+  const allowedThemes = new Set(["harvard", "midnight", "forest"]);
+  const allowedDensity = new Set(["comfortable", "compact"]);
+
+  const safeTheme = allowedThemes.has(theme) ? theme : defaultTheme.theme;
+  const safeDensity = allowedDensity.has(density) ? density : defaultTheme.density;
+
+  themes[googleId] = {
+    theme: safeTheme,
+    density: safeDensity
+  };
+
+  console.log(`Saved theme for ${googleId}:`, themes[googleId]);
+  res.json({ ok: true, theme: themes[googleId] });
 });
 
 const PORT = process.env.PORT || 3000;
