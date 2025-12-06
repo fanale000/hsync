@@ -23,6 +23,7 @@ const GOOGLE_CLIENT_ID =
 
 let calendarTokenClient = null;
 let calendarBusySlots = new Set();
+
 function getCalendarAccessToken() {
   return new Promise((resolve, reject) => {
     if (!window.google || !google.accounts || !google.accounts.oauth2) {
@@ -41,11 +42,14 @@ function getCalendarAccessToken() {
             reject(new Error("No access token received from Google."));
           }
         },
+        error_callback: (error) => {
+          reject(new Error(`Google OAuth error: ${error.type}`));
+        },
       });
     }
 
-    // This will trigger consent the first time
-    calendarTokenClient.requestAccessToken({ prompt: "" });
+    // Request the access token with explicit callback handling
+    calendarTokenClient.requestAccessToken();
   });
 }
 // ---------- Theme helpers ----------
@@ -275,141 +279,7 @@ function initHomePage() {
     });
   }
 }
-function buildSlotRangesForEvent() {
-  if (!eventData) return [];
 
-  const slotsPerDay = eventData.grid.slotsPerDay;
-  const days = eventData.dates.length;
-  const slotMinutes = eventData.slotMinutes;
-  const ranges = [];
-
-  for (let day = 0; day < days; day++) {
-    const dateStr = eventData.dates[day]; // "YYYY-MM-DD"
-
-    for (let row = 0; row < slotsPerDay; row++) {
-      const startMinutes = eventData.startTimeMinutes + row * slotMinutes;
-
-      const h = Math.floor(startMinutes / 60)
-        .toString()
-        .padStart(2, "0");
-      const m = (startMinutes % 60).toString().padStart(2, "0");
-
-      const slotStart = new Date(`${dateStr}T${h}:${m}:00`);
-      const slotEnd = new Date(slotStart.getTime() + slotMinutes * 60_000);
-
-      const index = day * slotsPerDay + row;
-      ranges[index] = {
-        start: slotStart.getTime(),
-        end: slotEnd.getTime(),
-      };
-    }
-  }
-
-  return ranges;
-}
-function applyCalendarOverlay() {
-  if (!cellsByIndex) return;
-
-  cellsByIndex.forEach((cell, idx) => {
-    if (calendarBusySlots.has(idx)) {
-      cell.classList.add("busy-calendar");
-    } else {
-      cell.classList.remove("busy-calendar");
-    }
-  });
-}
-// Load Google Calendar events for the event window and mark busy slots
-async function loadCalendarOverlayForCurrentEvent(statusEl) {
-  if (!eventData) {
-    statusEl.textContent = "Event data not loaded yet.";
-    return;
-  }
-
-  try {
-    statusEl.textContent = "Contacting Google Calendar...";
-
-    const accessToken = await getCalendarAccessToken();
-
-    // Compute timeMin and timeMax for the event range
-    const firstDate = eventData.dates[0];
-    const lastDate = eventData.dates[eventData.dates.length - 1];
-
-    function composeISO(dateStr, minutes) {
-      const h = Math.floor(minutes / 60)
-        .toString()
-        .padStart(2, "0");
-      const m = (minutes % 60).toString().padStart(2, "0");
-      return new Date(`${dateStr}T${h}:${m}:00`);
-    }
-
-    const startDateTime = composeISO(firstDate, eventData.startTimeMinutes);
-    const endDateTime = composeISO(lastDate, eventData.endTimeMinutes);
-
-    const params = new URLSearchParams({
-      timeMin: startDateTime.toISOString(),
-      timeMax: endDateTime.toISOString(),
-      singleEvents: "true",
-      orderBy: "startTime",
-    });
-
-    const resp = await fetch(
-      "https://www.googleapis.com/calendar/v3/calendars/primary/events?" +
-        params.toString(),
-      {
-        headers: {
-          Authorization: "Bearer " + accessToken,
-        },
-      },
-    );
-
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`Google Calendar error: ${resp.status} ${text}`);
-    }
-
-    const data = await resp.json();
-
-    const ranges = buildSlotRangesForEvent();
-    calendarBusySlots.clear();
-
-    const items = data.items || [];
-
-    for (const ev of items) {
-      // all-day events have .date, normal events have .dateTime
-      const startStr =
-        (ev.start && (ev.start.dateTime || ev.start.date + "T00:00:00")) ||
-        null;
-      const endStr =
-        (ev.end && (ev.end.dateTime || ev.end.date + "T23:59:59")) || null;
-
-      if (!startStr || !endStr) continue;
-
-      const evStart = new Date(startStr).getTime();
-      const evEnd = new Date(endStr).getTime();
-
-      for (let i = 0; i < ranges.length; i++) {
-        const r = ranges[i];
-        if (!r) continue;
-        // overlap check: [slotStart, slotEnd) vs [evStart, evEnd)
-        if (r.start < evEnd && r.end > evStart) {
-          calendarBusySlots.add(i);
-        }
-      }
-    }
-
-    applyCalendarOverlay();
-
-    statusEl.textContent =
-      items.length === 0
-        ? "No calendar events during this poll window."
-        : `Overlay applied from ${items.length} calendar event${
-            items.length === 1 ? "" : "s"
-          }.`;
-  } catch (err) {
-    console.error(err);
-    statusEl.textContent = err.message || "Failed to load calendar overlay.";
-  }
-}
 
 // ---------- Event page (grid + availability) ----------
 function initEventPage() {
@@ -794,6 +664,143 @@ function initEventPage() {
     mySlots = new Set();
     localStorage.setItem(mySlotsKey, JSON.stringify([]));
     cellsByIndex.forEach((cell) => cell.classList.remove("my-slot"));
+  }
+
+  function buildSlotRangesForEvent() {
+    if (!eventData) return [];
+
+    const slotsPerDay = eventData.grid.slotsPerDay;
+    const days = eventData.dates.length;
+    const slotMinutes = eventData.slotMinutes;
+    const ranges = [];
+
+    for (let day = 0; day < days; day++) {
+      const dateStr = eventData.dates[day]; // "YYYY-MM-DD"
+
+      for (let row = 0; row < slotsPerDay; row++) {
+        const startMinutes = eventData.startTimeMinutes + row * slotMinutes;
+
+        const h = Math.floor(startMinutes / 60)
+          .toString()
+          .padStart(2, "0");
+        const m = (startMinutes % 60).toString().padStart(2, "0");
+
+        const slotStart = new Date(`${dateStr}T${h}:${m}:00`);
+        const slotEnd = new Date(slotStart.getTime() + slotMinutes * 60_000);
+
+        const index = day * slotsPerDay + row;
+        ranges[index] = {
+          start: slotStart.getTime(),
+          end: slotEnd.getTime(),
+        };
+      }
+    }
+
+    return ranges;
+  }
+
+  function applyCalendarOverlay() {
+    if (!cellsByIndex) return;
+
+    cellsByIndex.forEach((cell, idx) => {
+      if (calendarBusySlots.has(idx)) {
+        cell.classList.add("busy-calendar");
+      } else {
+        cell.classList.remove("busy-calendar");
+      }
+    });
+  }
+
+  async function loadCalendarOverlayForCurrentEvent(statusEl) {
+    if (!eventData) {
+      statusEl.textContent = "Event data not loaded yet.";
+      return;
+    }
+
+    try {
+      statusEl.textContent = "Contacting Google Calendar...";
+
+      const accessToken = await getCalendarAccessToken();
+
+      // Compute timeMin and timeMax for the event range
+      const firstDate = eventData.dates[0];
+      const lastDate = eventData.dates[eventData.dates.length - 1];
+
+      function composeISO(dateStr, minutes) {
+        const h = Math.floor(minutes / 60)
+          .toString()
+          .padStart(2, "0");
+        const m = (minutes % 60).toString().padStart(2, "0");
+        return new Date(`${dateStr}T${h}:${m}:00`);
+      }
+
+      const startDateTime = composeISO(firstDate, eventData.startTimeMinutes);
+      const endDateTime = composeISO(lastDate, eventData.endTimeMinutes);
+
+      const params = new URLSearchParams({
+        timeMin: startDateTime.toISOString(),
+        timeMax: endDateTime.toISOString(),
+        singleEvents: "true",
+        orderBy: "startTime",
+      });
+
+      const resp = await fetch(
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events?" +
+          params.toString(),
+        {
+          headers: {
+            Authorization: "Bearer " + accessToken,
+          },
+        },
+      );
+
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`Google Calendar error: ${resp.status} ${text}`);
+      }
+
+      const data = await resp.json();
+
+      const ranges = buildSlotRangesForEvent();
+      calendarBusySlots.clear();
+
+      const items = data.items || [];
+
+      for (const ev of items) {
+        // all-day events have .date, normal events have .dateTime
+        const startStr =
+          (ev.start && (ev.start.dateTime || ev.start.date + "T00:00:00")) ||
+          null;
+        const endStr =
+          (ev.end && (ev.end.dateTime || ev.end.date + "T23:59:59")) || null;
+
+        if (!startStr || !endStr) continue;
+
+        const evStart = new Date(startStr).getTime();
+        const evEnd = new Date(endStr).getTime();
+
+        for (let i = 0; i < ranges.length; i++) {
+          const r = ranges[i];
+          if (!r) continue;
+          // overlap check: [slotStart, slotEnd) vs [evStart, evEnd)
+          if (r.start < evEnd && r.end > evStart) {
+            calendarBusySlots.add(i);
+          }
+        }
+      }
+
+      applyCalendarOverlay();
+
+      statusEl.textContent =
+        items.length === 0
+          ? "No calendar events during this poll window."
+          : `Overlay applied from ${items.length} calendar event${
+              items.length === 1 ? "" : "s"
+            }.`;
+    } catch (err) {
+      console.error(err);
+      statusEl.textContent = err.message || "Failed to load calendar overlay.";
+    }
   }
 
   // Listeners
