@@ -1,0 +1,30 @@
+**------Documentation------**
+
+**Background:**
+My project, HSync, is meant to be an alternative for the commonly used When2Meet application frequently used here at Harvard. I had noticed how the website itself was lacking in features, was not visually appealing, and was extremely difficult to use on a mobile device. I had no previous knowledge of how to use GitHub, AI assisted programming, Google OAuth 2.0, or Node.js. However, when I started, I had an idea of what feature to add for my own twist of When2Meet: Google Calendar integration. My original plan was for users to optionally sign into Google to customize a form's appearance while being able to autofill things like a profile picture, participant name, and Google Calendar overlay -- I encountered a roadblock that prevented me from bringing in this full integration without completely redoing my previous design with AI since Google Authentication is already beyond the scope of what we had learned in class. Another feature that I was not able to implement with these AI restrictions and time constraints was having participants being able to choose events on their Google Calendar to show up as a "busy time" for other participants so that everyone already has a sense for each other's schedules without revealing sensitive or private information. 
+
+Ultimately, while researching potential competitors and other implementations, I realized that a reason why people might prefer When2Meet over other scheduling sites like Doodle which have more features is because of the simplicity of the site itself. Though there is the option to use the clunky sign-in, most users of When2Meet are able to quickly and simply schedule available times without having to do any extra steps; I wanted to emulate that simplicity. Completely lost as to how I was supposed to begin, I went to ChatGPT with a list of ideas and asked for a project outline, an extensive list of websites which contained documentation for what I wanted to implement, and directions for how to learn Google Identity Services. Throughout this weeklong process, I made the decision to export my project to GitHub and learn its associated features as well as start using integrated AI such as Copilot and Cursor to increase my productivity. I also wanted to be able to access my website through something other than localhost 3000, so I made a Render account and am currently using that free service. While the current product is nowhere near being ready to be deployed to the public, I have high hopes for what it could eventually become.
+
+**Use and Instructions:**
+The project itself can be **accessed** through this Render link: **https://hsync-ll3h.onrender.com**.
+
+Because Render itself is free, it may take up to a minute for the website itself to load up. As a new participant, you can sign into Google by clicking the login circle on the top left of the home page. Eventually, this will have more use, but currently, it only serves to fill in your email profile picture. You also can create a new poll where you choose a title, dates, times, and the slot length. Or, you can join an existing poll by either using the container below or clicking on the "Join" page located on the navbar. After filling in the details (which also works on mobile), you will be given a heatmap grid as well as a link to share with others. To use the grid, input your name and click/drag across the cells when you would be available. You can also use the mobile-friendly "Quick range select" which allows you to manually input chunks of time rather than having to drag which is difficult on mobile. Additionally, you can click "Overlay my Google Calendar" which overlays cells with stripes if you have an event scheduled in your Google Calendar during that time. Hovering over these cells gives the details of the event including title, date, time, description, and location. **Note:** As my website is still in the testing stage and has not received verification from Google, individual emails need to be inputted through Google Cloud Console as Test Users for this feature to currently work. See the testing section of this document for details. All other features still work.
+
+Example of the overlay in action: <img width="1337" height="871" alt="Screenshot 2025-12-07 at 5 11 14 PM" src="https://github.com/user-attachments/assets/e69b12ce-f06e-4b3b-b0de-ca4ca2c6e0a4" />
+
+After filling in desired times, click on "Save my availability" to save your choices. Notice that navigating between pages using the navbar does not clear your selection. Selected times appear in the lowest container. You can also change the name of the participant and select other cells and save it again. Times with overlap will show up on the heatmap, and the times and participants can be seen in the "Best times so far" section. Clicking the dropdown menu reveals the names of the participants.
+<img width="670" height="455" alt="Screenshot 2025-12-07 at 5 16 03 PM" src="https://github.com/user-attachments/assets/44423eaf-7f72-47ff-a82b-691daf672dc3" />
+
+I am currently also working on a way to show participant names when you hover over a particular cell. 
+
+Opening the link on another device allows you to do the same but with the current results already saved. 
+
+
+**TESTING:**
+Because my project is small in scale, and I am using free services, my website has not yet been verified by Google as it is still in the testing stage.
+
+This means that all users who try to use the Google Calendar Overlay feature must have their emails individually added to the test user list on Google Cloud Console to be granted access.
+
+**IMPORTANT: ALL TESTERS OF THE GOOGLE CALENDAR OVERLAY MUST EMAIL ME TO BE ADDED TO THE TEST USER LIST FOR THE GOOGLE CALENDAR OVERLAY TO WORK!**
+
+Though I understand that CS50 staff members should not need to contact us with questions, this is something that Google themselves will not allow without either typing in individual email addresses or fully publishing the website with an authorized domain to be verified. Again, **all other features excluding the overlay still work without having to sign in.**
