@@ -1,58 +1,112 @@
-<!doctype html>
+<!-- join.html - Join Existing Event Page -->
+<!-- Code formatted using the Prettier extension -->
+<!-- Documentation: https://www.w3schools.com/html/ -->
+<!-- Referenced ChatGPT: https://www.chatgpt.com for form implementation guidance -->
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <title>HSync — Join Poll</title>
+
+    <!-- Viewport Meta Tag for Responsive/Mobile-Friendly Design -->
+    <!-- Documentation: https://www.w3schools.com/css/css_rwd_viewport.asp -->
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="stylesheet" href="styles.css" />
+
+    <!-- Google Identity Services (GSI) Script for Google Sign-In -->
+    <!-- Documentation: https://developers.google.com/identity/gsi/web -->
+    <!-- Script Loading: https://www.w3schools.com/tags/att_script_async.asp -->
+    <!-- Script Loading: https://www.w3schools.com/tags/att_script_defer.asp -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body class="page page-join">
     <header class="topbar">
       <div class="topbar-left">
+        <!-- Contains Google Sign-In button and application name -->
         <div class="brand">
-          <div id="topbar-signin" style="display:flex;align-items:center;gap:8px;">
-            <div id="gsi-topbar" style="display:inline-flex;"></div>
-            <img id="topbar-profile-pic" alt="Profile" style="width:36px;height:36px;border-radius:50%;display:none;object-fit:cover;" />
+          <!-- Sign-In Container with Flexbox Layout -->
+          <!-- display:flex creates a flex container -->
+          <!-- align-items:center vertically centers items -->
+          <!-- gap:8px adds spacing between flex items -->
+          <!-- Documentation: https://www.w3schools.com/css/css3_flexbox.asp -->
+          <div
+            id="topbar-signin"
+            style="display: flex; align-items: center; gap: 8px"
+          >
+            <!-- Google Sign-In Button Container -->
+            <div id="gsi-topbar" style="display: inline-flex"></div>
+
+            <!-- User Profile Picture -->
+            <!-- Documentation: https://www.w3schools.com/tags/tag_img.asp -->
+            <img
+              id="topbar-profile-pic"
+              alt="Profile"
+              style="
+                width: 36px;
+                height: 36px;
+                border-radius: 50%;
+                display: none;
+                object-fit: cover;
+              "
+            />
             <span class="brand-text">HSync</span>
           </div>
         </div>
+
+        <!-- Topbar Subtitle Display Area -->
         <div class="topbar-subtitle">Join an existing poll</div>
       </div>
 
+      <!-- Navigation Links -->
+      <!-- Documentation: https://www.w3schools.com/tags/tag_nav.asp -->
       <nav class="topbar-nav">
+        <!-- Home Page Link -->
         <a href="index.html" class="topbar-link">Home</a>
+
+        <!-- Join Page Link (Current Page - Active State) -->
         <a href="join.html" class="topbar-link topbar-link--active">Join</a>
+
+        <!-- Event Page Link -->
         <a href="event.html" class="topbar-link">Event</a>
-        <!-- Appearance navigation disabled -->
-        <!-- <a href="appearance.html" class="topbar-link">Appearance</a> -->
       </nav>
     </header>
-
     <main class="main">
       <section class="card card-secondary">
         <h2>Join a poll</h2>
-
         <div class="join-row">
+          <!-- Event Link/Code Input Label and Field -->
           <label class="share-label">
             Event link or code
-            <input type="text" id="join-event-input" placeholder="Paste HSync link or code" />
+            <!-- Text Input for Event ID or Full URL -->
+            <input
+              type="text"
+              id="join-event-input"
+              placeholder="Paste HSync link or code"
+            />
           </label>
-          <button id="join-open-button" class="btn btn-primary">Open poll</button>
+
+          <!-- Open Poll Button -->
+          <button id="join-open-button" class="btn btn-primary">
+            Open poll
+          </button>
         </div>
 
+        <!-- Saved Message Display Area -->
         <p id="join-saved-msg" class="helper-text"></p>
-
         <p class="helper-text">
-          Paste the full HSync link, or just the short code at the end. The last poll you attempted to join is saved for quick access.
+          Paste the full HSync link, or just the short code at the end. The last
+          poll you attempted to join is saved for quick access.
         </p>
       </section>
     </main>
-
+    <!-- Footer Element -->
+    <!-- Documentation: https://www.w3schools.com/tags/tag_footer.asp -->
     <footer class="footer">
       <span>Quick access to polls you joined recently.</span>
     </footer>
-
+    <!-- Documentation: https://www.w3schools.com/tags/tag_script.asp -->
+    <!-- Script Defer: https://www.w3schools.com/tags/att_script_defer.asp -->
+    <!-- See main.js initJoinPage() function for implementation details -->
     <script src="main.js" defer></script>
   </body>
 </html>

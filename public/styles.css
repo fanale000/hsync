@@ -1,4 +1,12 @@
 /* public/styles.css */
+/* 
+ * CSS Custom Properties allow us to define reusable values that can be
+ * referenced throughout the stylesheet using var().
+ * 
+ * 
+ * Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/Using_CSS_custom_properties
+ * Documentation: https://www.w3schools.com/css/css3_variables.asp
+ */
 :root {
   --crimson: #a51c30;
   --crimson-soft: #fcebed;
@@ -10,10 +18,20 @@
   --card-bg: #ffffff;
   --danger: #b91c1c;
   --radius-lg: 18px;
+  /* Box shadow: x-offset y-offset blur spread color */
+  /* Documentation: https://www.w3schools.com/css/css3_shadows.asp */
   --shadow-soft: 0 8px 18px rgba(15, 23, 42, 0.08);
 }
 
-/* Theme variants (default is Harvard via :root) */
+/* 
+ * When JavaScript sets data-theme="harvard" on <html>, these rules apply.
+ * 
+ * This enables dynamic theme switching without reloading the page.
+ * 
+ * Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/Attribute_selectors
+ * Documentation: https://www.w3schools.com/css/css_attribute_selectors.asp
+ */
+/* Theme variants, midnight and forest are currently not in use until Appearance page is fixed */
 
 :root[data-theme="harvard"] {
   --crimson: #a51c30;
@@ -33,7 +51,12 @@
   --crimson-dark: #166534;
 }
 
-/* Density variants for grid cells */
+/* 
+ * NOT CURRENTLY IN USE
+ * Uses attribute selector to change grid cell size based on data-density.
+ * 
+ * Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/Attribute_selectors
+ */
 :root[data-density="comfortable"] .grid-cell {
   min-width: 2.3rem;
   min-height: 2.1rem;
@@ -44,6 +67,19 @@
   min-height: 1.6rem;
 }
 
+/* 
+ * Sets box-sizing: border-box for all elements and pseudo-elements.
+ * This makes width/height include padding and border, making layout
+ * calculations more predictable.
+ * ChatGPT assisted.
+ * The ::before and ::after pseudo-elements are included so generated
+ * content also uses border-box sizing.
+ * 
+ * Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/box-sizing
+ * Documentation: https://www.w3schools.com/css/css3_box-sizing.asp
+ * Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/::before
+ * Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/::after
+ */
 *,
 *::before,
 *::after {
@@ -59,6 +95,8 @@ body {
     "SF Pro Text",
     "Segoe UI",
     sans-serif;
+  /* Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/gradient/radial-gradient */
+  /* Documentation: https://www.w3schools.com/css/css3_gradients.asp */
   background: radial-gradient(circle at top left, #fdf2f2, var(--bg));
   color: var(--text-main);
 }
@@ -72,9 +110,12 @@ body {
 /* Top bar */
 
 .topbar {
+  /* Linear gradient at 120 degree angle */
+  /* Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/gradient/linear-gradient */
   background: linear-gradient(120deg, var(--crimson), #851025);
   color: white;
   padding: 0.75rem 1.25rem;
+  /* Flexbox layout for horizontal alignment */
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -100,6 +141,9 @@ body {
   padding: 0.3rem 0.7rem;
   border-radius: 999px;
   border: 1px solid transparent;
+  /* CSS Transitions: smooth animation between property changes */
+  /* Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/transition */
+  /* Documentation: https://www.w3schools.com/css/css3_transitions.asp */
   transition:
     background 0.15s ease,
     color 0.15s ease,
@@ -283,12 +327,17 @@ select:focus {
 .btn-primary {
   background: var(--crimson);
   color: white;
+  /* Creates depth/elevation effect */
+  /* Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/box-shadow */
   box-shadow: 0 6px 14px rgba(165, 28, 48, 0.4);
 }
 
 .btn-primary:hover {
   background: var(--crimson-dark);
+  /* transform: translateY moves element up on hover for "lift" effect */
+  /* Documentation: https://www.w3schools.com/css/css3_2dtransforms.asp */
   transform: translateY(-1px);
+  /* Increased shadow on hover for more depth */
   box-shadow: 0 8px 18px rgba(165, 28, 48, 0.55);
 }
 
@@ -374,7 +423,10 @@ select:focus {
   margin-top: 0.5rem;
   border-radius: 1rem;
   border: 1px solid var(--border-soft);
+  /* Horizontal scrolling for mobile devices */
   overflow-x: auto;
+  /* iOS momentum scrolling - smooth scrolling on touch devices */
+  /* Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-overflow-scrolling */
   -webkit-overflow-scrolling: touch;
   background: #f9fafb;
 }
@@ -384,9 +436,16 @@ select:focus {
   padding: 0.5rem;
 }
 
+/* 
+ * CSS Grid creates a two-dimensional layout system.
+ * The grid is dynamically sized based on number of days and time slots.
+ * Documentation: https://www.w3schools.com/css/css_grid.asp
+ */
 .grid-header-row,
 .grid-row {
   display: grid;
+  /* gap: spacing between grid items */
+  /* Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/gap */
   gap: 1px;
 }
 
@@ -410,8 +469,13 @@ select:focus {
 .grid-day-header {
   font-weight: 600;
   white-space: nowrap;
+  /* Sticky positioning: element sticks to top when scrolling */
+  /* Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/position#sticky */
+  /* Documentation: https://www.w3schools.com/css/css_positioning.asp */
   position: sticky;
   top: 0;
+  /* z-index: ensures header stays above grid cells when scrolling */
+  /* Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/z-index */
   z-index: 2;
 }
 
@@ -420,7 +484,6 @@ select:focus {
   padding-right: 0.4rem;
   white-space: nowrap;
 }
-
 /* Each availability cell */
 .grid-cell {
   min-width: 2.3rem;
@@ -429,7 +492,12 @@ select:focus {
   background: #e5e7eb;
   cursor: pointer;
   position: relative;
+  /* touch-action: none prevents default touch behaviors (like scrolling) */
+  /* Allows custom drag-to-select functionality */
+  /* Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/touch-action */
   touch-action: none;
+  /* Multiple property transitions for smooth interactions */
+  /* Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/transition */
   transition:
     background 0.1s ease,
     transform 0.05s ease,
@@ -437,12 +505,19 @@ select:focus {
     border 0.1s ease;
 }
 
+/* Pseudo-element for inner border effect */
+/* Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/::after */
 .grid-cell::after {
+  /* content: required for pseudo-elements to render */
   content: "";
   position: absolute;
+  /* inset: shorthand for top, right, bottom, left (creates 2px inset) */
+  /* Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/inset */
   inset: 2px;
   border-radius: inherit;
   border: 1px solid transparent;
+  /* pointer-events: none allows clicks to pass through to parent */
+  /* Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/pointer-events */
   pointer-events: none;
 }
 
@@ -475,11 +550,19 @@ select:focus {
   border-color: var(--crimson-dark);
 }
 /* Calendar busy overlay on top of heatmap/my-slot */
+/* ::before pseudo-element creates striped pattern overlay */
+/* ChatGPT assisted heavily to create diagonal stripe implementation
+/* Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/::before */
 .grid-cell.busy-calendar::before {
   content: "";
   position: absolute;
   inset: 2px;
   border-radius: inherit;
+  /* Repeating linear gradient creates diagonal stripes */
+  /* 135deg: diagonal angle */
+  /* Pattern: 4px dark, 4px transparent, repeating */
+  /* Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/gradient/repeating-linear-gradient */
+  /* Documentation: https://www.w3schools.com/css/css3_gradients.asp */
   background-image: repeating-linear-gradient(
     135deg,
     rgba(0, 0, 0, 0.05),
@@ -491,8 +574,13 @@ select:focus {
 }
 
 /* Calendar busy cell styling (striped) */
+/* Alternative striped pattern using linear-gradient with precise color stops */
+/* Creates checkerboard-like diagonal stripes */
+/* Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/gradient/linear-gradient */
 .grid-cell.busy-calendar {
   background-image: linear-gradient(135deg, rgba(255,255,255,0.06) 25%, transparent 25%, transparent 50%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.06) 75%, transparent 75%, transparent);
+  /* background-size: controls pattern tile size */
+  /* Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/background-size */
   background-size: 10px 10px;
   position: relative;
   cursor: pointer;
@@ -505,7 +593,10 @@ select:focus {
   gap: 0.5rem;
   flex-wrap: wrap;
 }
-/* Interaction states */
+/* Active state: when cell is being clicked/tapped */
+/* transform: scale creates "press down" visual feedback */
+/* Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/:active */
+/* Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/transform */
 .grid-cell:active {
   transform: scale(0.96);
 }
@@ -593,19 +684,26 @@ select:focus {
   border-top: 1px solid rgba(255,255,255,0.06);
   margin: 8px 0;
 }
-
-/* Responsive */
-
+/* 
+ * Media queries allow different styles for different screen sizes.
+ * This breakpoint targets tablets and larger screens (768px+).
+ * 
+ * Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/Media_Queries
+ * Documentation: https://www.w3schools.com/css/css3_mediaqueries.asp
+ */
 @media (min-width: 768px) {
   .main {
     padding: 2rem 1.5rem 2rem;
   }
 
+  /* On home page, switch from column to row layout on larger screens */
   .page-home .main {
     flex-direction: row;
     align-items: flex-start;
   }
 
+  /* flex: 2 means this card takes 2x the space of flex: 1 */
+  /* Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/flex */
   .page-home .card-primary {
     flex: 2;
   }
