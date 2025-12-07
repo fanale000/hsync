@@ -1,54 +1,188 @@
 /**
- * main.js — cleaned, documented, simplified
- *
- * Goals:
- * - Keep behavior intact (join/create/event/appearance, Google sign-in + calendar overlay)
- * - Remove duplicated/stray code, consolidate helpers
- * - Add clear comments for each section so it's easy to read and modify
- *
- * Note: this file intentionally keeps higher-level helpers minimal and
- * relies on the same DOM ids used by the HTML files in /public.
+ * main.js - HSync Frontend Client Application
+ * 
+ * This is the main client-side JavaScript file for the HSync scheduling application.
+ * It handles all user interactions, UI rendering, Google authentication, calendar integration,
+ * and communication with the backend API.
+ * 
+ * Key Technologies:
+ * - Vanilla JavaScript (ES6+) - No framework dependencies
+ * - Google Identity Services (GSI) - For Google Sign-In
+ *   Documentation: https://developers.google.com/identity/gsi/web
+ * - Google Calendar API - For calendar event overlay
+ *   Documentation: https://developers.google.com/calendar/api
+ * - Fetch API - For HTTP requests to backend
+ *   Documentation: https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API
+ * - Web Storage APIs - localStorage and sessionStorage for persistence
+ *   Documentation: https://developer.mozilla.org/en-US/docs/Web/API/Web_Storage_API
+ * - Pointer Events API - For drag-to-select functionality
+ *   Documentation: https://developer.mozilla.org/en-US/docs/Web/API/Pointer_events
+ * 
+ * Architecture:
+ * - Page-specific initializers (initHomePage, initJoinPage, initEventPage, initAppearancePage)
+ * - Shared utility functions for DOM manipulation, storage, and API calls
+ * - Google OAuth integration for authentication and calendar access
+ * - Real-time availability grid rendering with heatmap visualization
+ * 
+ * @module main
  */
-
-const GOOGLE_CLIENT_ID = "19747295970-tp902n56girks9e8kegdl1vlod13l3ti.apps.googleusercontent.com";
-
-/* -------------------------
-   Small helpers
-   ------------------------- */
-const $ = (sel, ctx = document) => ctx.querySelector(sel);
-const $$ = (sel, ctx = document) => Array.from((ctx || document).querySelectorAll(sel));
-const getQueryParam = (name) => new URL(window.location.href).searchParams.get(name);
 
 /**
- * Lightweight fetch -> JSON utility that throws on non-2xx.
- * Returns parsed JSON or throws Error with message.
+ * Google OAuth 2.0 Client ID
+ * 
+ * This is the client ID obtained from Google Cloud Console when setting up OAuth credentials.
+ * It's used for both Google Sign-In (ID token) and Calendar API access (access token).
+ * 
+ * @see https://console.cloud.google.com/apis/credentials
+ * @see https://developers.google.com/identity/protocols/oauth2
+ */
+const GOOGLE_CLIENT_ID = "19747295970-tp902n56girks9e8kegdl1vlod13l3ti.apps.googleusercontent.com";
+
+// ============================================================================
+// DOM UTILITY FUNCTIONS
+// ============================================================================
+
+/**
+ * jQuery-like selector function for single element queries
+ * 
+ * Shorthand for document.querySelector with optional context parameter.
+ * 
+ * @param {string} sel - CSS selector string
+ * @param {Element|Document} ctx - Optional context element (defaults to document)
+ * @returns {Element|null} First matching element or null
+ * 
+ * @example
+ * const title = $("#event-title");
+ * const button = $(".btn", container);
+ * 
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/Document/querySelector
+ */
+const $ = (sel, ctx = document) => ctx.querySelector(sel);
+
+/**
+ * jQuery-like selector function for multiple element queries
+ * 
+ * Returns an array of all matching elements (not a NodeList).
+ * 
+ * @param {string} sel - CSS selector string
+ * @param {Element|Document} ctx - Optional context element (defaults to document)
+ * @returns {Element[]} Array of matching elements
+ * 
+ * @example
+ * const buttons = $$(".btn");
+ * 
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/Document/querySelectorAll
+ */
+const $$ = (sel, ctx = document) => Array.from((ctx || document).querySelectorAll(sel));
+
+/**
+ * Extracts a query parameter value from the current page URL
+ * 
+ * @param {string} name - Query parameter name
+ * @returns {string|null} Parameter value or null if not found
+ * 
+ * @example
+ * // URL: /event.html?id=abc123
+ * const eventId = getQueryParam("id"); // "abc123"
+ * 
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/URL/searchParams
+ */
+const getQueryParam = (name) => new URL(window.location.href).searchParams.get(name);
+
+// ============================================================================
+// API COMMUNICATION
+// ============================================================================
+
+/**
+ * Lightweight fetch wrapper that automatically parses JSON and throws on errors
+ * 
+ * This utility function wraps the Fetch API to provide a simpler interface:
+ * - Automatically parses JSON responses
+ * - Throws errors for non-2xx status codes
+ * - Extracts error messages from response body
+ * - Preserves status code and response body in error object
+ * 
+ * @param {string} url - Request URL (relative or absolute)
+ * @param {RequestInit} opts - Fetch options (method, headers, body, etc.)
+ * @returns {Promise<Object>} Parsed JSON response data
+ * @throws {Error} If response status is not 2xx, error includes status and body
+ * 
+ * @example
+ * try {
+ *   const data = await fetchJson("/api/events", { method: "POST", body: JSON.stringify({...}) });
+ * } catch (err) {
+ *   console.error("Request failed:", err.status, err.message);
+ * }
+ * 
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/Response
  */
 async function fetchJson(url, opts = {}) {
+  // Make the HTTP request
   const res = await fetch(url, opts);
+  
+  // Read response body as text (with fallback to empty string on error)
   const text = await res.text().catch(() => "");
+  
+  // Attempt to parse as JSON, fallback to empty object if parsing fails
   let data = {};
-  try { data = text ? JSON.parse(text) : {}; } catch {}
+  try { 
+    data = text ? JSON.parse(text) : {}; 
+  } catch {}
+  
+  // If response is not OK (status not in 200-299 range), throw an error
   if (!res.ok) {
+    // Extract error message from response body, fallback to status text or status code
     const msg = data?.error || data?.message || res.statusText || `HTTP ${res.status}`;
     const err = new Error(msg);
-    err.status = res.status;
-    err.body = data;
+    err.status = res.status; // Attach status code for error handling
+    err.body = data; // Attach parsed body for detailed error information
     throw err;
   }
+  
   return data;
 }
 
 /**
- * Decode a JWT id_token payload (safe best-effort).
+ * Decodes a JWT (JSON Web Token) payload without verification
+ * 
+ * This function extracts the payload from a JWT token without verifying the signature.
+ * It's used for client-side extraction of user information from Google ID tokens.
+ * 
+ * WARNING: This does NOT verify the token signature. For security, tokens should
+ * always be verified server-side. This is only used for extracting display information.
+ * 
+ * JWT structure: header.payload.signature
+ * - Header: Algorithm and token type
+ * - Payload: Claims (user data)
+ * - Signature: Cryptographic signature (not used here)
+ * 
+ * @param {string} token - JWT token string
+ * @returns {Object|null} Decoded payload object or null on error
+ * 
+ * @example
+ * const payload = parseJwt(idToken);
+ * // payload: { sub: "123456789", name: "John Doe", email: "john@example.com", ... }
+ * 
+ * @see https://jwt.io/introduction
+ * @see https://developers.google.com/identity/protocols/oauth2/openid-connect#obtainuserinfo
  */
 function parseJwt(token) {
   if (!token) return null;
   try {
+    // JWT format: header.payload.signature (three parts separated by dots)
+    // We only need the payload (middle part)
     const payload = token.split(".")[1];
+    
+    // Base64URL decoding: replace URL-safe characters with standard Base64 characters
+    // Base64URL uses - and _ instead of + and /, and omits padding
     const json = atob(payload.replace(/-/g, "+").replace(/_/g, "/"));
-    // decodeURIComponent(escape(...)) is a compatibility shim for some environments
+    
+    // decodeURIComponent(escape(...)) is a compatibility shim for handling
+    // UTF-8 encoded strings in older JavaScript environments
     return JSON.parse(decodeURIComponent(escape(json)));
   } catch (e) {
+    // Return null on any error (malformed token, parse error, etc.)
     return null;
   }
 }
@@ -70,21 +204,53 @@ function setSessionEvent(id) { try { if (id) sessionStorage.setItem("hsync:sessi
 function getSessionEvent() { try { return sessionStorage.getItem("hsync:sessionEvent"); } catch (e) { return null; } }
 function clearSessionEvent() { try { sessionStorage.removeItem("hsync:sessionEvent"); } catch (e) {} }
 
-/* -------------------------
-   Google / Calendar helpers
-   ------------------------- */
-/*
-  We keep a single token client instance and expose a Promise-based function
-  to obtain an access token. This function will prompt the user if consent is required.
-*/
+// ============================================================================
+// GOOGLE AUTHENTICATION & CALENDAR INTEGRATION
+// ============================================================================
+
+/**
+ * Google OAuth 2.0 Token Client instance
+ * 
+ * This is a singleton instance of the Google OAuth 2.0 token client used to
+ * obtain access tokens for the Google Calendar API. It's initialized lazily
+ * on first use.
+ * 
+ * @type {google.accounts.oauth2.TokenClient|null}
+ * 
+ * @see https://developers.google.com/identity/oauth2/web/guides/use-token-model
+ */
 let calendarTokenClient = null;
 
+/**
+ * SessionStorage key for caching calendar access tokens
+ * 
+ * Tokens are cached in sessionStorage to avoid prompting the user repeatedly.
+ * They expire after ~1 hour, so we check expiry before reusing.
+ */
 const CAL_TOKEN_KEY = "hsync:calToken";
 
 /**
- * Obtain a Google Calendar access token.
- * - Reuses a session-scoped cached token until it nears expiry.
- * - Falls back to showing the consent prompt via the token client when needed.
+ * Obtains a Google Calendar API access token
+ * 
+ * This function manages the OAuth 2.0 flow for accessing the user's Google Calendar:
+ * 1. Checks for a cached token in sessionStorage
+ * 2. If cached token is valid (not expired), returns it immediately
+ * 3. Otherwise, initializes/uses the OAuth token client to request a new token
+ * 4. The token client will show a consent dialog if the user hasn't granted permission
+ * 
+ * The access token is used to make authenticated requests to the Google Calendar API
+ * to fetch the user's calendar events for the overlay feature.
+ * 
+ * @param {boolean} forceRefresh - If true, bypasses cache and requests a new token
+ * @returns {Promise<string>} Access token string
+ * @throws {Error} If Google API is not loaded or token request fails
+ * 
+ * @example
+ * const token = await getCalendarAccessToken();
+ * // Use token to fetch calendar events
+ * 
+ * @see https://developers.google.com/identity/oauth2/web/guides/use-token-model
+ * @see https://developers.google.com/calendar/api/guides/overview
  */
 function getCalendarAccessToken(forceRefresh = false) {
   try {
@@ -137,8 +303,17 @@ function getCalendarAccessToken(forceRefresh = false) {
 }
 
 /**
- * Send idToken -> backend for session creation (optional).
- * Returns backend user object when available or null on error.
+ * Sends Google ID token to backend for server-side session creation
+ * 
+ * When a user signs in with Google, the frontend receives an ID token (JWT).
+ * This function forwards that token to the backend, which verifies it and
+ * creates a server-side session. This is optional - the frontend can work
+ * without it, but server-side sessions enable features like theme persistence.
+ * 
+ * @param {string} idToken - Google ID token (JWT) from Google Sign-In
+ * @returns {Promise<Object|null>} Backend user object or null on error
+ * 
+ * @see https://developers.google.com/identity/sign-in/web/backend-auth
  */
 async function sendGoogleIdTokenToBackend(idToken) {
   if (!idToken) return null;
@@ -156,7 +331,15 @@ async function sendGoogleIdTokenToBackend(idToken) {
 }
 
 /**
- * Optionally send calendar access token to backend (best-effort).
+ * Optionally sends calendar access token to backend (best-effort, non-blocking)
+ * 
+ * This function attempts to send the calendar access token to the backend,
+ * but failures are silently ignored. This allows the backend to potentially
+ * use the token for server-side calendar operations, though currently the
+ * backend doesn't implement this endpoint.
+ * 
+ * @param {string} accessToken - Google Calendar API access token
+ * @returns {Promise<void>} Resolves regardless of success/failure
  */
 async function sendCalendarAccessTokenToBackend(accessToken) {
   if (!accessToken) return;
@@ -172,7 +355,16 @@ async function sendCalendarAccessTokenToBackend(accessToken) {
 }
 
 /**
- * Fetch google profile info using an access token (userinfo endpoint).
+ * Fetches Google user profile information using an OAuth access token
+ * 
+ * Uses the Google OAuth 2.0 userinfo endpoint to retrieve the user's profile
+ * information (name, email, picture) when those details aren't available
+ * from the ID token.
+ * 
+ * @param {string} accessToken - OAuth 2.0 access token
+ * @returns {Promise<Object|null>} User profile object or null on error
+ * 
+ * @see https://developers.google.com/identity/protocols/oauth2/openid-connect#obtainuserinfo
  */
 async function fetchGoogleUserInfo(accessToken) {
   if (!accessToken) return null;
@@ -380,10 +572,31 @@ function initJoinPage() {
   }
 }
 
-/* Event page: grid & availability + calendar overlay wiring.
-   This initializer intentionally remains compact: it calls loadEvent()
-   which is implemented here and wires overlay & save behavior.
-*/
+// ============================================================================
+// PAGE INITIALIZERS
+// ============================================================================
+
+/**
+ * Initializes the event/availability page
+ * 
+ * This is the main initializer for the event page, which displays the
+ * availability grid and allows users to:
+ * - View aggregated availability from all participants
+ * - Select their own available time slots (via click or drag)
+ * - Save their availability to the backend
+ * - Overlay their Google Calendar to see existing commitments
+ * - Use range selection to quickly select multiple slots
+ * 
+ * The function sets up:
+ * - Event data loading from the backend
+ * - Grid rendering with heatmap visualization
+ * - Interactive cell selection (click and drag)
+ * - Calendar overlay integration
+ * - Best slots display
+ * - Form submission handlers
+ * 
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/Pointer_events
+ */
 function initEventPage() {
   const eventId = getQueryParam("id");
   if (!eventId) { alert("Missing event id in URL."); return; }
@@ -447,8 +660,30 @@ function initEventPage() {
       </div>`;
   }
 
+  /**
+   * Escapes HTML special characters to prevent XSS attacks
+   * 
+   * This function converts potentially dangerous HTML characters into their
+   * HTML entity equivalents, preventing malicious scripts from being executed
+   * when user-generated content is inserted into the DOM.
+   * 
+   * @param {string} s - String to escape
+   * @returns {string} Escaped string safe for HTML insertion
+   * 
+   * @example
+   * escapeHtml("<script>alert('XSS')</script>")
+   * // Returns: "&lt;script&gt;alert(&#39;XSS&#39;)&lt;/script&gt;"
+   * 
+   * @see https://owasp.org/www-community/attacks/xss/
+   */
   function escapeHtml(s) {
-    return String(s || "").replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+    return String(s || "").replace(/[&<>"']/g, (m) => ({ 
+      "&": "&amp;", 
+      "<": "&lt;", 
+      ">": "&gt;", 
+      '"': "&quot;", 
+      "'": "&#39;" 
+    }[m]));
   }
 
   function showCalendarTooltipForSlot(idx, cell) {
@@ -672,26 +907,65 @@ function initEventPage() {
     cellsByIndex.forEach(c => c.classList.remove("my-slot"));
   }
 
+  /**
+   * Builds an array of time ranges for each slot in the event
+   * 
+   * This function creates an array where each element represents a time slot
+   * with its start and end timestamps. This is used to determine which calendar
+   * events overlap with which availability slots.
+   * 
+   * The array is indexed by slot index (same as the grid cells), and each
+   * element contains { start: timestamp, end: timestamp }.
+   * 
+   * @returns {Array<Object>} Array of { start: number, end: number } objects
+   *                          indexed by slot index, or empty array if no event data
+   */
   function buildSlotRanges() {
     if (!eventData) return [];
     const perDay = eventData.grid.slotsPerDay;
     const days = eventData.dates.length;
     const minutes = eventData.slotMinutes;
     const ranges = new Array(days * perDay);
+    
+    // Build time ranges for each slot
     for (let d = 0; d < days; d++) {
       for (let r = 0; r < perDay; r++) {
+        // Calculate start time in minutes since midnight
         const startMin = eventData.startTimeMinutes + r * minutes;
+        
+        // Format as HH:MM for Date constructor
         const h = Math.floor(startMin / 60).toString().padStart(2, "0");
         const m = (startMin % 60).toString().padStart(2, "0");
+        
+        // Create Date object and get timestamp (milliseconds since epoch)
         const start = new Date(`${eventData.dates[d]}T${h}:${m}:00`).getTime();
-        const end = start + minutes * 60000;
+        const end = start + minutes * 60000; // Add slot duration in milliseconds
+        
+        // Store in array at slot index (day * slotsPerDay + row)
         ranges[d * perDay + r] = { start, end };
       }
     }
     return ranges;
   }
 
-  /* Calendar overlay: fetch primary calendar events and mark overlapping slots */
+  /**
+   * Loads Google Calendar events and overlays them on the availability grid
+   * 
+   * This function:
+   * 1. Obtains a Google Calendar API access token (prompts user if needed)
+   * 2. Fetches calendar events from the user's primary calendar for the event date range
+   * 3. Determines which time slots overlap with calendar events
+   * 4. Marks those slots as "busy" in the UI with visual styling
+   * 5. Stores event details for tooltip display on hover
+   * 
+   * The calendar overlay helps users see their existing commitments when
+   * selecting available times, preventing double-booking.
+   * 
+   * @param {HTMLElement|null} statusEl - Optional status element to display progress/errors
+   * @returns {Promise<void>}
+   * 
+   * @see https://developers.google.com/calendar/api/v3/reference/events/list
+   */
   async function loadCalendarOverlayForCurrentEvent(statusEl) {
     if (!eventData) { if (statusEl) statusEl.textContent = "Event not loaded yet."; return; }
     try {

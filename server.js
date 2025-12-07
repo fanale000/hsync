@@ -1,103 +1,359 @@
-// server.js
+/**
+ * server.js - HSync Backend Server
+ * 
+ * This Express.js server provides the REST API backend for the HSync scheduling application.
+ * It handles event creation, availability tracking, user authentication via Google OAuth,
+ * and theme/appearance preferences.
+ * 
+ * Key Technologies:
+ * - Express.js: Web framework for Node.js
+ *   Documentation: https://expressjs.com/
+ * - cookie-session: Session management using encrypted cookies
+ *   Documentation: https://github.com/expressjs/cookie-session
+ * - google-auth-library: Google OAuth 2.0 authentication
+ *   Documentation: https://github.com/googleapis/google-auth-library-nodejs
+ * - Node.js crypto: Cryptographic functionality for secure key generation
+ *   Documentation: https://nodejs.org/api/crypto.html
+ * 
+ * @module server
+ */
+
+// ============================================================================
+// IMPORTS AND DEPENDENCIES
+// ============================================================================
+
+/**
+ * Express.js - Fast, unopinionated web framework for Node.js
+ * @see https://expressjs.com/
+ */
 const express = require("express");
+
+/**
+ * Node.js path module - Utilities for working with file and directory paths
+ * @see https://nodejs.org/api/path.html
+ */
 const path = require("path");
+
+/**
+ * Node.js crypto module - Provides cryptographic functionality
+ * Used for generating secure random session keys and event IDs
+ * @see https://nodejs.org/api/crypto.html
+ */
 const crypto = require("crypto");
 
+/**
+ * Google Auth Library - OAuth2Client for verifying Google ID tokens
+ * @see https://github.com/googleapis/google-auth-library-nodejs
+ * @see https://googleapis.dev/nodejs/google-auth-library/latest/
+ */
 const { OAuth2Client } = require("google-auth-library");
+
+/**
+ * cookie-session - Simple cookie-based session middleware
+ * Stores session data in encrypted cookies (no server-side storage needed)
+ * @see https://github.com/expressjs/cookie-session
+ * @see https://www.npmjs.com/package/cookie-session
+ */
 const cookieSession = require("cookie-session");
 
-// TODO: replace with your real client ID from Google Cloud Console
+// ============================================================================
+// CONFIGURATION
+// ============================================================================
+
+/**
+ * Google OAuth 2.0 Client ID
+ * This is obtained from the Google Cloud Console when setting up OAuth credentials
+ * 
+ * TODO: In production, move this to an environment variable for security
+ * 
+ * @see https://console.cloud.google.com/apis/credentials
+ * @see https://developers.google.com/identity/protocols/oauth2
+ */
 const GOOGLE_CLIENT_ID =
   "19747295970-tp902n56girks9e8kegdl1vlod13l3ti.apps.googleusercontent.com";
+
+/**
+ * OAuth2Client instance for verifying Google ID tokens
+ * This client is used to verify that ID tokens received from the frontend
+ * are valid and issued by Google for our application
+ * 
+ * @see https://googleapis.dev/nodejs/google-auth-library/latest/classes/OAuth2Client.html
+ */
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
-// Generate secure session keys if not provided via environment variables
-// In production, set SESSION_KEYS as a comma-separated list of at least 32-byte random strings
+// ============================================================================
+// SESSION MANAGEMENT
+// ============================================================================
+
+/**
+ * Generates secure session keys for cookie encryption
+ * 
+ * Session keys are used by cookie-session to encrypt/decrypt session data.
+ * In production, these should be set via the SESSION_KEYS environment variable
+ * as a comma-separated list of at least 32-byte random hex strings.
+ * 
+ * Security considerations:
+ * - Keys should be at least 32 bytes (64 hex characters)
+ * - Multiple keys allow key rotation without invalidating all sessions
+ * - Keys should be kept secret and never committed to version control
+ * 
+ * @returns {string[]} Array of session keys (hex strings)
+ * 
+ * @see https://github.com/expressjs/cookie-session#keys
+ * @see https://nodejs.org/api/crypto.html#cryptorandombytessize-callback
+ */
 function getSessionKeys() {
   const envKeys = process.env.SESSION_KEYS;
   if (envKeys) {
+    // Parse comma-separated keys from environment variable
     return envKeys.split(",").map((k) => k.trim()).filter(Boolean);
   }
+  
   // Fallback: generate keys at startup (not ideal for production with multiple instances)
   // This ensures security even if env vars aren't set, but keys will change on restart
+  // which will invalidate all existing sessions
   console.warn(
     "WARNING: SESSION_KEYS not set. Generating temporary keys. " +
     "Set SESSION_KEYS environment variable for production use."
   );
+  
+  // Generate two 32-byte (256-bit) random keys and convert to hex
+  // Each key is 64 hex characters (32 bytes * 2)
   return [
     crypto.randomBytes(32).toString("hex"),
     crypto.randomBytes(32).toString("hex"),
   ];
 }
 
+// ============================================================================
+// EXPRESS APP SETUP
+// ============================================================================
+
+/**
+ * Create Express application instance
+ * @see https://expressjs.com/en/api.html#express
+ */
 const app = express();
+
+/**
+ * Middleware: Parse JSON request bodies
+ * 
+ * This middleware parses incoming requests with JSON payloads and makes
+ * the parsed data available in req.body
+ * 
+ * @see https://expressjs.com/en/api.html#express.json
+ */
 app.use(express.json());
+
+/**
+ * Middleware: Cookie-based session management
+ * 
+ * This middleware handles session storage using encrypted cookies.
+ * Session data is stored client-side in encrypted cookies, eliminating
+ * the need for server-side session storage (like Redis).
+ * 
+ * Configuration:
+ * - name: Cookie name for the session
+ * - keys: Array of keys for signing/encrypting cookies (rotated automatically)
+ * - maxAge: Session expiration time (7 days)
+ * - secure: Only send cookies over HTTPS in production
+ * - httpOnly: Prevents JavaScript access (XSS protection)
+ * - sameSite: CSRF protection (lax allows GET requests from other sites)
+ * 
+ * @see https://github.com/expressjs/cookie-session#options
+ * @see https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies
+ */
 app.use(
   cookieSession({
     name: "hsync_session",
     keys: getSessionKeys(),
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 1 week
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in milliseconds
     secure: process.env.NODE_ENV === "production", // Only send over HTTPS in production
-    httpOnly: true, // Prevent XSS attacks
-    sameSite: "lax", // CSRF protection
+    httpOnly: true, // Prevent XSS attacks by blocking JavaScript access
+    sameSite: "lax", // CSRF protection: allows GET requests from other sites
   }),
 );
 
+/**
+ * Middleware: Serve static files from the 'public' directory
+ * 
+ * This serves HTML, CSS, JavaScript, and other static assets to clients.
+ * Files in the public directory are accessible at the root URL path.
+ * 
+ * @see https://expressjs.com/en/starter/static-files.html
+ * @see https://expressjs.com/en/api.html#express.static
+ */
 app.use(express.static(path.join(__dirname, "public")));
 
-// In-memory event store (for a real deployment, use a DB)
+// ============================================================================
+// DATA STORAGE
+// ============================================================================
+
+/**
+ * In-memory event store
+ * 
+ * This is a simple in-memory object that stores all events.
+ * In a production deployment, this should be replaced with a proper database
+ * (e.g., PostgreSQL, MongoDB, Redis) for persistence and scalability.
+ * 
+ * Structure: { [eventId]: EventObject }
+ * 
+ * @type {Object.<string, Object>}
+ */
 const events = {};
 
+/**
+ * In-memory user store
+ * 
+ * Stores user information keyed by Google ID.
+ * In production, this should be stored in a database.
+ * 
+ * Structure: { [googleId]: { googleId, name, email } }
+ * 
+ * @type {Object.<string, Object>}
+ */
+const users = {};
+
+/**
+ * In-memory theme preferences store
+ * 
+ * Stores appearance preferences (theme and density) per user.
+ * Keyed by Google ID.
+ * 
+ * Structure: { [googleId]: { theme: string, density: string } }
+ * 
+ * @type {Object.<string, Object>}
+ */
+const themes = {};
+
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+
+/**
+ * Generates a unique event ID using cryptographically secure random bytes
+ * 
+ * Uses crypto.randomBytes to generate 4 random bytes (8 hex characters),
+ * providing 2^32 possible IDs (4.3 billion combinations).
+ * 
+ * @returns {string} 8-character hexadecimal event ID
+ * 
+ * @see https://nodejs.org/api/crypto.html#cryptorandombytessize-callback
+ */
 function generateId() {
   return crypto.randomBytes(4).toString("hex");
 }
 
+/**
+ * Converts a time string in "HH:MM" format to minutes since midnight
+ * 
+ * Example: "14:30" -> 870 (14 * 60 + 30)
+ * 
+ * @param {string} t - Time string in "HH:MM" format (24-hour)
+ * @returns {number} Minutes since midnight (0-1439)
+ */
 function parseTimeToMinutes(t) {
-  // t = "HH:MM"
+  // Split "HH:MM" into hours and minutes, convert to numbers
   const [h, m] = t.split(":").map(Number);
   return h * 60 + m;
 }
 
+/**
+ * Formats minutes since midnight into 12-hour time with AM/PM
+ * 
+ * Example: 870 -> "2:30 PM"
+ * 
+ * @param {number} minutes - Minutes since midnight (0-1439)
+ * @returns {string} Formatted time string (e.g., "2:30 PM")
+ */
 function formatTime(minutes) {
   let h = Math.floor(minutes / 60);
   const m = minutes % 60;
+  
+  // Determine AM/PM
   const ampm = h >= 12 ? "PM" : "AM";
+  
+  // Convert to 12-hour format
   h = h % 12;
-  if (h === 0) h = 12;
+  if (h === 0) h = 12; // 0 becomes 12 (noon/midnight)
+  
+  // Pad minutes with leading zero
   const mm = m.toString().padStart(2, "0");
+  
   return `${h}:${mm} ${ampm}`;
 }
-// aggregate[row][day] = number of people available
+
+/**
+ * Computes availability aggregation for an event
+ * 
+ * This function processes all participant availability data and creates:
+ * 1. A 2D array showing how many people are available for each time slot
+ * 2. A 2D array showing which people are available for each time slot
+ * 3. The maximum count across all slots (for heatmap visualization)
+ * 
+ * The slot indexing system:
+ * - Slots are numbered sequentially: 0, 1, 2, ...
+ * - For a multi-day event, slots wrap: day 0 slots 0-N, day 1 slots N+1-2N, etc.
+ * - Formula: slotIndex = (dayIndex * slotsPerDay) + rowIndex
+ * - Reverse: rowIndex = slotIndex % slotsPerDay, dayIndex = floor(slotIndex / slotsPerDay)
+ * 
+ * @param {Object} event - Event object with participants data
+ * @param {Object} event.participants - Object mapping normalized names to participant data
+ * @param {Set<number>} event.participants[].slots - Set of slot indices this participant selected
+ * @param {number} event.startTimeMinutes - Start time in minutes since midnight
+ * @param {number} event.endTimeMinutes - End time in minutes since midnight
+ * @param {number} event.slotMinutes - Duration of each slot in minutes
+ * @param {string[]} event.dates - Array of date strings (YYYY-MM-DD)
+ * 
+ * @returns {Object} Aggregation result
+ * @returns {number[][]} aggregate - 2D array: [row][day] -> count of available people
+ * @returns {string[][][]} who - 3D array: [row][day] -> array of participant names
+ * @returns {number} maxCount - Maximum count across all slots (for heatmap scaling)
+ * @returns {number} slotsPerDay - Number of time slots per day
+ */
 function computeAggregate(event) {
   const totalMinutes = event.endTimeMinutes - event.startTimeMinutes;
   const slotsPerDay = Math.floor(totalMinutes / event.slotMinutes);
   const days = event.dates.length;
 
-  // Number of people available per slot
+  // Initialize 2D arrays: aggregate[row][day] = number of people available
+  // Using Array.from with a mapping function to create independent arrays
   const aggregate = Array.from({ length: slotsPerDay }, () =>
     Array(days).fill(0),
   );
 
-  // Names per slot
+  // Initialize 3D array: who[row][day] = array of participant names
   const who = Array.from({ length: slotsPerDay }, () =>
     Array.from({ length: days }, () => []),
   );
 
   let maxCount = 0;
 
+  // Iterate through all participants
   for (const p of Object.values(event.participants)) {
+    // Each participant has a Set of slot indices they selected
     for (const slotIndex of p.slots) {
       const idx = Number(slotIndex);
+      
+      // Validate slot index is an integer
       if (!Number.isInteger(idx)) continue;
 
+      // Convert flat slot index to 2D coordinates (row, day)
+      // row = which time slot within the day (0 to slotsPerDay-1)
+      // col = which day (0 to days-1)
       const row = idx % slotsPerDay;
       const col = Math.floor(idx / slotsPerDay);
 
+      // Bounds checking
       if (row < 0 || row >= slotsPerDay || col < 0 || col >= days) continue;
 
+      // Increment count for this slot
       aggregate[row][col]++;
+      
+      // Add participant name to the list
       who[row][col].push(p.name);
 
+      // Track maximum for heatmap scaling
       if (aggregate[row][col] > maxCount) {
         maxCount = aggregate[row][col];
       }
@@ -107,25 +363,83 @@ function computeAggregate(event) {
   return { aggregate, who, maxCount, slotsPerDay };
 }
 
-// Input validation helpers
+// ============================================================================
+// INPUT VALIDATION
+// ============================================================================
+
+/**
+ * Validates event title input
+ * 
+ * Ensures title is:
+ * - A non-empty string
+ * - Between 1 and 200 characters
+ * - Contains only valid Unicode characters (letters, numbers, punctuation, spaces)
+ * 
+ * Uses Unicode property escapes (\p{L}, \p{N}, etc.) to support international characters
+ * 
+ * @param {string} title - Event title to validate
+ * @returns {boolean} True if valid, false otherwise
+ * 
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_Expressions/Unicode_Property_Escapes
+ */
 function validateTitle(title) {
   if (!title || typeof title !== "string") return false;
   const trimmed = title.trim();
   if (trimmed.length === 0 || trimmed.length > 200) return false;
-  // Allow reasonable characters for event titles
+  
+  // Unicode property escapes:
+  // \p{L} = any letter (any language)
+  // \p{N} = any number (any script)
+  // \p{P} = any punctuation
+  // \p{Z} = any whitespace
+  // /u flag enables Unicode mode
   return /^[\p{L}\p{N}\p{P}\p{Z}]+$/u.test(trimmed);
 }
 
+/**
+ * Validates participant name input
+ * 
+ * Ensures name is:
+ * - A non-empty string
+ * - Between 1 and 100 characters
+ * - Contains only valid Unicode characters
+ * 
+ * @param {string} name - Participant name to validate
+ * @returns {boolean} True if valid, false otherwise
+ */
 function validateParticipantName(name) {
   if (!name || typeof name !== "string") return false;
   const trimmed = name.trim();
   if (trimmed.length === 0 || trimmed.length > 100) return false;
-  // Allow reasonable characters for names
+  
+  // Same Unicode validation as titles
   return /^[\p{L}\p{N}\p{P}\p{Z}]+$/u.test(trimmed);
 }
 
-// Create event
+// ============================================================================
+// API ROUTES - EVENTS
+// ============================================================================
+
+/**
+ * POST /api/events
+ * 
+ * Creates a new availability polling event
+ * 
+ * Request body:
+ * - title: Event title (string, 1-200 chars)
+ * - startDate: Start date in YYYY-MM-DD format
+ * - endDate: End date in YYYY-MM-DD format
+ * - startTime: Start time in HH:MM format (24-hour)
+ * - endTime: End time in HH:MM format (24-hour)
+ * - slotMinutes: Duration of each time slot in minutes (positive integer)
+ * 
+ * Response:
+ * - { id: string } - The generated event ID
+ * 
+ * @see https://expressjs.com/en/guide/routing.html
+ */
 app.post("/api/events", (req, res) => {
+  // Extract and validate required fields
   const { title, startDate, endDate, startTime, endTime, slotMinutes } =
     req.body || {};
 
@@ -140,41 +454,51 @@ app.post("/api/events", (req, res) => {
     return res.status(400).json({ error: "Missing required fields." });
   }
 
+  // Validate title format and length
   if (!validateTitle(title)) {
     return res.status(400).json({
       error: "Invalid title. Must be 1-200 characters and contain only valid characters.",
     });
   }
 
+  // Generate array of dates from startDate to endDate (inclusive)
   const dates = [];
   let current = new Date(startDate);
   const end = new Date(endDate);
 
+  // Validate date range
   if (isNaN(current.getTime()) || isNaN(end.getTime()) || current > end) {
     return res.status(400).json({ error: "Invalid date range." });
   }
 
+  // Build date array, incrementing by one day each iteration
   while (current <= end) {
-    dates.push(current.toISOString().slice(0, 10)); // YYYY-MM-DD
+    // toISOString() returns "YYYY-MM-DDTHH:mm:ss.sssZ", slice(0,10) gets "YYYY-MM-DD"
+    dates.push(current.toISOString().slice(0, 10));
     current.setDate(current.getDate() + 1);
   }
 
+  // Convert time strings to minutes since midnight
   const startTimeMinutes = parseTimeToMinutes(startTime);
   const endTimeMinutes = parseTimeToMinutes(endTime);
   const span = endTimeMinutes - startTimeMinutes;
 
+  // Validate slot length
   const slotMins = Number(slotMinutes);
   if (!Number.isInteger(slotMins) || slotMins <= 0) {
     return res.status(400).json({ error: "Invalid slot length." });
   }
 
+  // Calculate number of slots per day
   const slotsPerDay = Math.floor(span / slotMins);
   if (slotsPerDay <= 0) {
     return res.status(400).json({ error: "Invalid time range." });
   }
 
+  // Generate unique event ID
   const id = generateId();
 
+  // Store event in memory
   events[id] = {
     id,
     title: title.trim(),
@@ -189,26 +513,47 @@ app.post("/api/events", (req, res) => {
   res.json({ id });
 });
 
-// Get event + aggregated availability
+/**
+ * GET /api/events/:id
+ * 
+ * Retrieves event data with aggregated availability information
+ * 
+ * URL parameters:
+ * - id: Event ID (hex string, max 32 chars)
+ * 
+ * Response:
+ * - Event object with aggregated availability grid data
+ * 
+ * The response includes computed aggregates showing:
+ * - How many people are available for each time slot
+ * - Which people are available for each time slot
+ * - Formatted time labels for display
+ */
 app.get("/api/events/:id", (req, res) => {
   const eventId = req.params.id;
+  
   // Validate event ID format (should be hex string, max 32 chars for safety)
+  // This prevents potential injection attacks or malformed IDs
   if (!eventId || typeof eventId !== "string" || eventId.length > 32 || !/^[a-f0-9]+$/i.test(eventId)) {
     return res.status(400).json({ error: "Invalid event ID format." });
   }
+  
   const event = events[eventId];
   if (!event) {
     return res.status(404).json({ error: "Event not found." });
   }
 
+  // Compute aggregated availability data
   const { aggregate, who, maxCount, slotsPerDay } = computeAggregate(event);
+  
+  // Generate formatted time labels for each slot
   const times = [];
-
   for (let i = 0; i < slotsPerDay; i++) {
     const minutes = event.startTimeMinutes + i * event.slotMinutes;
     times.push(formatTime(minutes));
   }
 
+  // Return event data with computed aggregates
   res.json({
     id: event.id,
     title: event.title,
@@ -218,7 +563,7 @@ app.get("/api/events/:id", (req, res) => {
     startTimeMinutes: event.startTimeMinutes,
     endTimeMinutes: event.endTimeMinutes,
     grid: {
-      aggregate, // [row][day] -> count
+      aggregate, // [row][day] -> count of available people
       who, // [row][day] -> ["Name1", "Name2"]
       maxCount,
       slotsPerDay,
@@ -229,13 +574,32 @@ app.get("/api/events/:id", (req, res) => {
   });
 });
 
-// Save / update a participant's availability
+/**
+ * POST /api/events/:id/availability
+ * 
+ * Saves or updates a participant's availability for an event
+ * 
+ * URL parameters:
+ * - id: Event ID (hex string, max 32 chars)
+ * 
+ * Request body:
+ * - participantName: Participant's name (string, 1-100 chars)
+ * - slots: Array of slot indices (numbers) that the participant is available
+ * 
+ * Response:
+ * - { ok: true }
+ * 
+ * The participant's name is normalized (lowercased) for storage,
+ * but the original casing is preserved for display.
+ */
 app.post("/api/events/:id/availability", (req, res) => {
   const eventId = req.params.id;
-  // Validate event ID format (should be hex string, max 32 chars for safety)
+  
+  // Validate event ID format
   if (!eventId || typeof eventId !== "string" || eventId.length > 32 || !/^[a-f0-9]+$/i.test(eventId)) {
     return res.status(400).json({ error: "Invalid event ID format." });
   }
+  
   const event = events[eventId];
   if (!event) {
     return res.status(404).json({ error: "Event not found." });
@@ -246,6 +610,7 @@ app.post("/api/events/:id/availability", (req, res) => {
     return res.status(400).json({ error: "Invalid payload." });
   }
 
+  // Validate participant name
   if (!validateParticipantName(participantName)) {
     return res.status(400).json({
       error: "Invalid name. Must be 1-100 characters and contain only valid characters.",
@@ -254,41 +619,77 @@ app.post("/api/events/:id/availability", (req, res) => {
 
   const cleanedName = participantName.trim();
   
-  // Validate slots array
+  // Validate slots array size to prevent DoS attacks
   if (slots.length > 10000) {
     return res.status(400).json({ error: "Too many slots selected." });
   }
 
+  // Calculate valid slot index range
   const totalMinutes = event.endTimeMinutes - event.startTimeMinutes;
   const slotsPerDay = Math.floor(totalMinutes / event.slotMinutes);
   const days = event.dates.length;
   const maxIndex = slotsPerDay * days - 1;
 
+  // Validate and clamp slot indices to valid range
+  // This prevents invalid indices from being stored
   const clampedSlots = new Set();
   for (const s of slots) {
     const idx = Number(s);
+    // Only accept valid integer indices within the valid range
     if (Number.isInteger(idx) && idx >= 0 && idx <= maxIndex) {
       clampedSlots.add(idx);
     }
   }
 
+  // Store participant data using normalized (lowercase) name as key
+  // This allows case-insensitive lookup while preserving original casing
   const key = cleanedName.toLowerCase();
   event.participants[key] = {
-    name: cleanedName,
-    slots: clampedSlots,
+    name: cleanedName, // Store original casing for display
+    slots: clampedSlots, // Store as Set to automatically handle duplicates
   };
 
   console.log(`Updated availability for ${cleanedName} on event ${event.id}`);
   res.json({ ok: true });
 });
 
+// ============================================================================
+// API ROUTES - AUTHENTICATION
+// ============================================================================
+
+/**
+ * Verifies a Google ID token and extracts user information
+ * 
+ * Google ID tokens are JWTs (JSON Web Tokens) that contain user information
+ * and are cryptographically signed by Google. This function verifies the signature
+ * and extracts the user's Google ID, name, and email.
+ * 
+ * @param {string} idToken - Google ID token (JWT) from the frontend
+ * @returns {Promise<Object>} User information object
+ * @returns {string} googleId - Google user ID (sub claim)
+ * @returns {string} name - User's display name
+ * @returns {string} email - User's email address
+ * 
+ * @see https://developers.google.com/identity/protocols/oauth2/openid-connect
+ * @see https://googleapis.dev/nodejs/google-auth-library/latest/classes/OAuth2Client.html#verifyIdToken
+ */
 async function verifyGoogleToken(idToken) {
+  // Verify the ID token signature and decode the payload
   const ticket = await googleClient.verifyIdToken({
     idToken,
-    audience: GOOGLE_CLIENT_ID,
+    audience: GOOGLE_CLIENT_ID, // Must match the client ID that issued the token
   });
+  
+  // Extract the payload (user information)
   const payload = ticket.getPayload();
-  // payload has fields like: sub (user ID), name, email, picture
+  
+  // payload contains fields like:
+  // - sub: Google user ID (unique, never changes)
+  // - name: Display name
+  // - email: Email address
+  // - picture: Profile picture URL
+  // - email_verified: Boolean indicating if email is verified
+  
   return {
     googleId: payload.sub,
     name: payload.name,
@@ -296,11 +697,26 @@ async function verifyGoogleToken(idToken) {
   };
 }
 
-// Simple in-memory user store (for demo)
-const users = {}; // key: googleId -> { googleId, name, email }
-// userId -> appearance settings
-const themes = {}; // { [googleId]: { theme: "harvard", density: "comfortable" } }
-
+/**
+ * POST /api/auth/google
+ * 
+ * Authenticates a user using a Google ID token
+ * 
+ * This endpoint receives a Google ID token from the frontend (obtained via
+ * Google Sign-In), verifies it, and creates a server-side session.
+ * 
+ * Request body:
+ * - idToken: Google ID token (JWT string)
+ * 
+ * Response:
+ * - { ok: true, user: { googleId, name, email } }
+ * 
+ * On success, the user information is stored in:
+ * 1. The in-memory users object (for future reference)
+ * 2. The session cookie (for subsequent requests)
+ * 
+ * @see https://developers.google.com/identity/sign-in/web
+ */
 app.post("/api/auth/google", async (req, res) => {
   try {
     const { idToken } = req.body || {};
@@ -308,12 +724,13 @@ app.post("/api/auth/google", async (req, res) => {
       return res.status(400).json({ error: "Missing idToken" });
     }
 
+    // Verify the token and extract user information
     const userInfo = await verifyGoogleToken(idToken);
 
-    // store / update the user
+    // Store / update the user in memory
     users[userInfo.googleId] = userInfo;
 
-    // set session
+    // Set session data (stored in encrypted cookie)
     req.session.user = {
       googleId: userInfo.googleId,
       name: userInfo.name,
@@ -327,7 +744,18 @@ app.post("/api/auth/google", async (req, res) => {
   }
 });
 
-// Get current logged-in user
+/**
+ * GET /api/me
+ * 
+ * Returns the currently authenticated user's information
+ * 
+ * Response:
+ * - { user: { googleId, name, email } } if authenticated
+ * - { user: null } if not authenticated
+ * 
+ * This endpoint allows the frontend to check if a user is logged in
+ * and retrieve their information without requiring a new authentication.
+ */
 app.get("/api/me", (req, res) => {
   if (!req.session.user) {
     return res.json({ user: null });
@@ -335,19 +763,47 @@ app.get("/api/me", (req, res) => {
   res.json({ user: req.session.user });
 });
 
-// Logout
+/**
+ * POST /api/logout
+ * 
+ * Logs out the current user by clearing the session
+ * 
+ * Response:
+ * - { ok: true }
+ * 
+ * This destroys the session cookie, effectively logging the user out.
+ */
 app.post("/api/logout", (req, res) => {
   req.session = null;
   res.json({ ok: true });
 });
 
-// Default appearance if user has no saved theme
+// ============================================================================
+// API ROUTES - THEME/APPEARANCE
+// ============================================================================
+
+/**
+ * Default theme preferences
+ * 
+ * Used when a user has no saved preferences or is not logged in.
+ */
 const defaultTheme = {
   theme: "harvard",
   density: "comfortable",
 };
 
-// Get appearance for current logged-in user
+/**
+ * GET /api/theme
+ * 
+ * Retrieves the current user's appearance preferences
+ * 
+ * Requires authentication (user must be logged in).
+ * 
+ * Response:
+ * - { theme: string, density: string }
+ * 
+ * Returns default theme if user has no saved preferences.
+ */
 app.get("/api/theme", (req, res) => {
   if (!req.session.user) {
     return res.status(401).json({ error: "Not signed in" });
@@ -357,7 +813,22 @@ app.get("/api/theme", (req, res) => {
   res.json(prefs);
 });
 
-// Save appearance for current logged-in user
+/**
+ * POST /api/theme
+ * 
+ * Saves the current user's appearance preferences
+ * 
+ * Requires authentication (user must be logged in).
+ * 
+ * Request body:
+ * - theme: Theme name ("harvard", "midnight", or "forest")
+ * - density: Density setting ("comfortable" or "compact")
+ * 
+ * Response:
+ * - { ok: true, theme: { theme, density } }
+ * 
+ * Only allows predefined theme and density values to prevent injection attacks.
+ */
 app.post("/api/theme", (req, res) => {
   if (!req.session.user) {
     return res.status(401).json({ error: "Not signed in" });
@@ -365,14 +836,17 @@ app.post("/api/theme", (req, res) => {
   const googleId = req.session.user.googleId;
   const { theme, density } = req.body || {};
 
+  // Whitelist allowed values to prevent injection attacks
   const allowedThemes = new Set(["harvard", "midnight", "forest"]);
   const allowedDensity = new Set(["comfortable", "compact"]);
 
+  // Use whitelisted value or fall back to default
   const safeTheme = allowedThemes.has(theme) ? theme : defaultTheme.theme;
   const safeDensity = allowedDensity.has(density)
     ? density
     : defaultTheme.density;
 
+  // Save preferences
   themes[googleId] = {
     theme: safeTheme,
     density: safeDensity,
@@ -382,6 +856,18 @@ app.post("/api/theme", (req, res) => {
   res.json({ ok: true, theme: themes[googleId] });
 });
 
+// ============================================================================
+// SERVER STARTUP
+// ============================================================================
+
+/**
+ * Start the HTTP server
+ * 
+ * The server listens on the port specified by the PORT environment variable,
+ * or defaults to port 3000 if not set.
+ * 
+ * @see https://expressjs.com/en/api.html#app.listen
+ */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`HSync server listening at http://localhost:${PORT}`);
