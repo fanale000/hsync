@@ -1,5 +1,5 @@
 /**
- * main.js - HSync Frontend Client Application
+ * Frontend with functions
  * 
  * This is the main client-side JavaScript file for the HSync scheduling application.
  * It handles all user interactions, UI rendering, Google authentication, calendar integration,

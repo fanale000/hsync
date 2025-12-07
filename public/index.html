@@ -1,34 +1,73 @@
-<!doctype html>
+<!-- index.html - Home Page -->
+<!-- Code formatted using the Prettier extension -->
+<!-- Documentation: https://www.w3schools.com/html/ -->
+<!-- Referenced ChatGPT: https://www.chatgpt.com for form implementation guidance -->
+
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <title>HSync — Smart Scheduling</title>
+    <!-- Documentation: https://www.w3schools.com/css/css_rwd_viewport.asp -->
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="stylesheet" href="styles.css" />
+
+    <!-- Google Identity Services (GSI) Script for Google Sign-In -->
+    <!-- Documentation: https://developers.google.com/identity/gsi/web -->
+    <!-- Documentation: https://www.w3schools.com/tags/att_script_async.asp -->
+    <!-- Documentation: https://www.w3schools.com/tags/att_script_defer.asp -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body class="page page-home">
     <header class="topbar">
       <div class="topbar-left">
         <div class="brand">
-          <div id="topbar-signin" style="display:flex;align-items:center;gap:8px;">
-            <div id="gsi-topbar" style="display:inline-flex;"></div>
-            <img id="topbar-profile-pic" alt="Profile" style="width:36px;height:36px;border-radius:50%;display:none;object-fit:cover;" />
+          <!-- Sign-In Container with Flexbox Layout -->
+          <!-- Documentation: https://www.w3schools.com/css/css3_flexbox.asp -->
+          <div
+            id="topbar-signin"
+            style="display: flex; align-items: center; gap: 8px"
+          >
+            <!-- Google Sign-In Button -->
+            <!-- Documentation: https://developers.google.com/identity/gsi/web/guides/display-button -->
+            <div id="gsi-topbar" style="display: inline-flex"></div>
+
+            <!-- User Profile Picture -->
+            <img
+              id="topbar-profile-pic"
+              alt="Profile"
+              style="
+                width: 36px;
+                height: 36px;
+                border-radius: 50%;
+                display: none;
+                object-fit: cover;
+              "
+            />
+
+            <!-- Application Name/Brand Text -->
             <span class="brand-text">HSync</span>
           </div>
         </div>
+
+        <!-- Topbar Subtitle Display Area -->
         <div class="topbar-subtitle">A cleaner, mobile-friendly When2meet</div>
       </div>
 
+      <!-- Navigation Links Section -->
       <nav class="topbar-nav">
+        <!-- Home Page Link -->
         <a href="index.html" class="topbar-link topbar-link--active">Home</a>
+
+        <!-- Join Page Link -->
         <a href="join.html" class="topbar-link">Join</a>
+
+        <!-- Event Page Link -->
         <a href="event.html" class="topbar-link">Event</a>
-        <!-- Appearance navigation disabled -->
-        <!-- <a href="appearance.html" class="topbar-link">Appearance</a> -->
       </nav>
     </header>
 
+    <!-- CHATGPT test code (to learn how to sign in) - COMMENT OUT AS IT IS NOT BEING USED -->
     <!-- <section class="card card-secondary">
       <h2>Sign in</h2>
       <div
@@ -55,6 +94,9 @@
     <main class="main">
       <section class="card card-primary">
         <h1>Create a new availability poll</h1>
+
+        <!-- Event Creation Form -->
+        <!-- Documentation: https://www.w3schools.com/html/html_forms.asp -->
         <form id="create-event-form" class="form-grid">
           <label>
             Title
@@ -65,50 +107,60 @@
               required
             />
           </label>
-
           <div class="form-row">
+            <!-- Start Date Input -->
+            <!-- Documentation: https://www.w3schools.com/html/html_form_input_types.asp -->
+            <!-- Documentation: https://developer.mozilla.org/en-US/docs/Web/HTML/Element/input/date -->
             <label>
               Start date
               <input type="date" id="start-date" required />
             </label>
 
+            <!-- End Date Input -->
             <label>
               End date
               <input type="date" id="end-date" required />
             </label>
           </div>
 
+          <!-- Time Range Input Row -->
           <div class="form-row">
+            <!-- Start Time Input -->
             <label>
               Start time
               <input type="time" id="start-time" required />
             </label>
 
+            <!-- End Time Input -->
             <label>
               End time
               <input type="time" id="end-time" required />
             </label>
           </div>
 
+          <!-- Dropdown select element for choosing time slot duration -->
+          <!-- Documentation: https://www.w3schools.com/tags/tag_select.asp -->
           <label>
             Slot length
             <select id="slot-minutes">
               <option value="15">15 minutes</option>
+              <!-- selected attribute makes this the default choice -->
+              <!-- Documentation: https://www.w3schools.com/tags/att_option_selected.asp -->
               <option value="30" selected>30 minutes</option>
               <option value="60">60 minutes</option>
             </select>
           </label>
-
           <button type="submit" class="btn btn-primary">Create poll</button>
         </form>
         <p class="helper-text">
-          After creating, you’ll get a shareable link to send to everyone.
+          After creating, you'll get a shareable link to send to everyone.
         </p>
       </section>
-
       <section class="card card-secondary">
+        <!-- Section Heading -->
         <h2>Join an existing poll</h2>
         <div class="join-row">
+          <!-- Event ID/Link Input -->
           <input
             type="text"
             id="event-id-input"
@@ -121,20 +173,31 @@
         </p>
       </section>
     </main>
-
-    <!-- add logout control at bottom of homepage -->
-    <section class="card card-secondary" id="home-logout-row" style="margin:18px 0;">
+    <!-- Inline style adds margin for spacing -->
+    <!-- Documentation: https://www.w3schools.com/css/css_inline-block.asp -->
+    <section
+      class="card card-secondary"
+      id="home-logout-row"
+      style="margin: 18px 0"
+    >
       <h3>Account</h3>
-      <p class="helper-text">Sign out of Google on this page and clear local profile state.</p>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <button id="logout-all-google" class="btn btn-ghost">Sign out of Google</button>
+      <p class="helper-text">
+        Sign out of Google on this page and clear local profile state.
+      </p>
+      <!-- Documentation: https://www.w3schools.com/css/css3_flexbox.asp -->
+      <div style="display: flex; gap: 8px; align-items: center">
+        <!-- Logout Button -->
+        <button id="logout-all-google" class="btn btn-ghost">
+          Sign out of Google
+        </button>
       </div>
     </section>
-
+    <!-- Footer Element -->
+    <!-- Documentation: https://www.w3schools.com/tags/tag_footer.asp -->
     <footer class="footer">
       <span>Designed with a Harvard Crimson theme.</span>
     </footer>
-
+    <!-- Documentation: https://www.w3schools.com/tags/att_script_defer.asp -->
     <script src="main.js" defer></script>
   </body>
 </html>

@@ -1,79 +1,143 @@
-<!doctype html>
+<!-- NOT FULLY IMPLEMENTED: IGNORE THIS CODE -->
+
+<!-- appearance.html - Appearance/Theme Settings Page -->
+<!-- Code formatted using the Prettier extension -->
+<!-- Documentation: https://www.w3schools.com/html/ -->
+<!-- Referenced ChatGPT: https://www.chatgpt.com for form implementation guidance -->
+
+<!DOCTYPE html>
+
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+
     <title>HSync — Appearance</title>
+
+    <!-- Documentation: https://www.w3schools.com/css/css_rwd_viewport.asp -->
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+
     <link rel="stylesheet" href="styles.css" />
+
+    <!-- Google Identity Services (GSI) Script for Google Sign-In -->
+    <!-- Documentation: https://developers.google.com/identity/gsi/web -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
+
+  <!-- Documentation: https://www.w3schools.com/html/html_classes.asp -->
   <body class="page page-appearance">
     <header class="topbar">
+      <!-- Topbar Left Section Container -->
       <div class="topbar-left">
+        <!-- Brand/Logo Section -->
+        <!-- Contains Google Sign-In button and application name -->
         <div class="brand">
-          <div id="topbar-signin" style="display:flex;align-items:center;gap:8px;">
-            <div id="gsi-topbar" style="display:inline-flex;"></div>
-            <img id="topbar-profile-pic" alt="Profile" style="width:36px;height:36px;border-radius:50%;display:none;object-fit:cover;" />
+          <!-- Sign-In Container with Flexbox Layout -->
+          <!-- Documentation: https://www.w3schools.com/css/css3_flexbox.asp -->
+          <div
+            id="topbar-signin"
+            style="display: flex; align-items: center; gap: 8px"
+          >
+            <!-- Documentation: https://developers.google.com/identity/gsi/web/guides/display-button -->
+            <div id="gsi-topbar" style="display: inline-flex"></div>
+
+            <!-- User Profile Picture -->
+            <!-- Documentation: https://www.w3schools.com/tags/tag_img.asp -->
+            <img
+              id="topbar-profile-pic"
+              alt="Profile"
+              style="
+                width: 36px;
+                height: 36px;
+                border-radius: 50%;
+                display: none;
+                object-fit: cover;
+              "
+            />
+
+            <!-- Site Name -->
+            <!-- Documentation: https://www.w3schools.com/tags/tag_span.asp -->
             <span class="brand-text">HSync</span>
           </div>
         </div>
+
         <div class="topbar-subtitle">Customize how HSync looks</div>
       </div>
 
+      <!-- Navigation Links Section -->
+      <!-- Documentation: https://www.w3schools.com/tags/tag_nav.asp -->
       <nav class="topbar-nav">
+        <!-- Home Page Link -->
         <a href="index.html" class="topbar-link">Home</a>
+
+        <!-- Join Page Link -->
         <a href="join.html" class="topbar-link">Join</a>
+
+        <!-- Event Page Link -->
         <a href="event.html" class="topbar-link">Event</a>
-        <!-- Appearance navigation disabled (this is the appearance page) -->
-        <!-- <a href="appearance.html" class="topbar-link topbar-link--active">Appearance</a> -->
       </nav>
     </header>
 
     <main class="main">
+      <!-- Appearance Settings Card Section -->
       <section class="card card-primary">
         <h1>Appearance settings</h1>
+
         <p class="helper-text">
           These preferences are saved with your Google login, so your theme
           follows you on any device.
         </p>
 
+        <!-- Signed-In User Badge Display Area -->
         <div id="signed-in-user" class="signed-in-badge"></div>
+
+        <!-- Warning Message Display Area -->
+        <!-- Shows messages if user is not signed in or other warnings -->
         <p id="appearance-warning" class="helper-text"></p>
 
         <form id="appearance-form" class="appearance-form">
+          <!-- Color Theme Settings Group -->
           <div class="settings-group">
+            <!-- Settings Group Heading -->
             <h3>Color theme</h3>
+
+            <!-- Documentation: https://www.w3schools.com/html/html_form_input_types.asp -->
             <label class="radio-row">
               <input type="radio" name="theme" value="harvard" checked />
               <span>Harvard Crimson (default)</span>
             </label>
+
             <label class="radio-row">
               <input type="radio" name="theme" value="midnight" />
               <span>Midnight Blue</span>
             </label>
+
             <label class="radio-row">
               <input type="radio" name="theme" value="forest" />
               <span>Forest Green</span>
             </label>
           </div>
 
+          <!-- Grid Density Settings Group -->
           <div class="settings-group">
+            <!-- Settings Group Heading -->
             <h3>Grid density</h3>
+
+            <!-- Controls spacing between grid cells in the availability grid -->
             <label class="radio-row">
               <input type="radio" name="density" value="comfortable" checked />
               <span>Comfortable</span>
             </label>
+
+            <!-- Shows more time slots on screen with tighter spacing -->
             <label class="radio-row">
               <input type="radio" name="density" value="compact" />
               <span>Compact (more slots on screen)</span>
             </label>
           </div>
-
           <button type="submit" class="btn btn-primary">Save appearance</button>
         </form>
       </section>
     </main>
-
     <footer class="footer">
       <span>Your theme is tied to your Google account.</span>
     </footer>
