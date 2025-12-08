@@ -60,7 +60,7 @@ function getQueryParam(name) {
  * @throws {Error} On non-2xx status
  */
 async function fetchJson(url, opts = {}) {
-  // Make the HTTP request
+  // Fetch response
   const res = await fetch(url, opts);
   
   // Read response text
@@ -71,15 +71,14 @@ async function fetchJson(url, opts = {}) {
     text = "";
   }
   
-  // Parse JSON or use empty object
+  // Parse JSON
   let data = {};
   try { 
     data = text ? JSON.parse(text) : {}; 
   } catch {}
   
-  // Throw error if response failed
+  // Handle errors
   if (!res.ok) {
-    // Get error message from response
     let msg = null;
     if (data && data.error) {
       msg = data.error;
@@ -125,9 +124,7 @@ function parseJwt(token) {
 function safeSet(key, value) {
   try {
     localStorage.setItem(key, value);
-  } catch (e) {
-    // Ignore storage errors
-  }
+  } catch (e) {}
 }
 
 function safeGet(key) {
@@ -141,9 +138,7 @@ function safeGet(key) {
 function safeRemove(key) {
   try {
     localStorage.removeItem(key);
-  } catch (e) {
-    // Ignore storage errors
-  }
+  } catch (e) {}
 }
 
 /**
@@ -177,9 +172,7 @@ function setSessionEvent(id) {
     } else {
       sessionStorage.removeItem("hsync:sessionEvent");
     }
-  } catch (e) {
-    // Ignore storage errors
-  }
+  } catch (e) {}
 }
 
 function getSessionEvent() {
@@ -193,9 +186,7 @@ function getSessionEvent() {
 function clearSessionEvent() {
   try {
     sessionStorage.removeItem("hsync:sessionEvent");
-  } catch (e) {
-    // Ignore storage errors
-  }
+  } catch (e) {}
 }
 
 // ============================================================================
@@ -221,6 +212,7 @@ function getCalendarAccessToken(forceRefresh) {
   if (forceRefresh === undefined) {
     forceRefresh = false;
   }
+  // Check cache first
   try {
     if (!forceRefresh) {
       const raw = sessionStorage.getItem(CAL_TOKEN_KEY);
@@ -235,6 +227,7 @@ function getCalendarAccessToken(forceRefresh) {
     /* ignore parse errors and continue to request new token */
   }
 
+  // Request new token
   return new Promise(function(resolve, reject) {
     if (!window.google || !google.accounts || !google.accounts.oauth2) {
       return reject(new Error("Google API not loaded"));
@@ -249,7 +242,7 @@ function getCalendarAccessToken(forceRefresh) {
             if (resp && resp.access_token) {
               let expires_in = Number(resp.expires_in);
               if (!expires_in) {
-                expires_in = 55 * 60; // seconds
+                expires_in = 55 * 60;
               }
               const expires_at = Date.now() + expires_in * 1000;
               try {
@@ -414,6 +407,7 @@ window.handleGoogleCredentialResponse = async function(resp) {
   if (!resp || !resp.credential) {
     return;
   }
+  // Extract user info from JWT
   const payload = parseJwt(resp.credential);
   let name = null;
   if (payload && payload.name) {
@@ -429,10 +423,10 @@ window.handleGoogleCredentialResponse = async function(resp) {
     setTopbarProfile(picture, name);
   }
 
-  sendGoogleIdTokenToBackend(resp.credential).catch(function() {
-    // Ignore errors
-  });
+  // Send token to backend
+  sendGoogleIdTokenToBackend(resp.credential).catch(function() {});
 
+  // Load calendar if on event page
   if (document.body.classList.contains("page-event")) {
     try {
       let token = null;
@@ -442,9 +436,7 @@ window.handleGoogleCredentialResponse = async function(resp) {
         token = null;
       }
       if (token) {
-        sendCalendarAccessTokenToBackend(token).catch(function() {
-          // Ignore errors
-        });
+        sendCalendarAccessTokenToBackend(token).catch(function() {});
         if (!picture || !name) {
           const info = await fetchGoogleUserInfo(token).catch(function() {
             return null;
@@ -511,12 +503,14 @@ async function signOutAllGoogle() {
  */
 async function loadCurrentUserAndTheme() {
   try {
+    // Fetch user data
     let me = { user: null };
     try {
       me = await fetchJson("/api/me");
     } catch (e) {
       me = { user: null };
     }
+    // Fetch theme preferences
     let themePrefs = null;
     try {
       themePrefs = await fetchJson("/api/theme");
@@ -524,6 +518,7 @@ async function loadCurrentUserAndTheme() {
       themePrefs = null;
     }
     
+    // Apply theme to page
     if (themePrefs) {
       if (themePrefs.theme) {
         document.documentElement.dataset.theme = themePrefs.theme;
@@ -533,6 +528,7 @@ async function loadCurrentUserAndTheme() {
       }
     }
     
+    // Return data
     let user = null;
     if (me && me.user) {
       user = me.user;
@@ -546,6 +542,7 @@ async function loadCurrentUserAndTheme() {
       themePrefs: themePreferences
     };
   } catch (err) {
+    // Fallback to defaults
     let currentTheme = document.documentElement.dataset.theme;
     if (!currentTheme) {
       currentTheme = "harvard";
@@ -567,10 +564,11 @@ function initHomePage() {
   const form = $("#create-event-form");
   if (!form) return;
   
+  // Handle form submission
   form.addEventListener("submit", async function(ev) {
     ev.preventDefault();
     
-    
+    // Get form values
     const titleElement = $("#title");
     let title = "";
     if (titleElement && titleElement.value) {
@@ -615,6 +613,7 @@ function initHomePage() {
     }
   });
 
+  // Handle logout button
   const logoutBtn = $("#logout-all-google");
   if (logoutBtn) {
     logoutBtn.addEventListener("click", function(e) {
@@ -635,6 +634,7 @@ function initJoinPage() {
   const msg = $("#join-saved-msg");
   const queryId = getQueryParam("id");
 
+  // Save event ID and show message
   function saveAndReport(id) {
     try {
       setLastJoinedEvent(id);
@@ -644,6 +644,7 @@ function initJoinPage() {
     }
   }
 
+  // Pre-fill input from URL or last saved
   if (queryId) {
     if (input) input.value = queryId;
     saveAndReport(queryId);
@@ -655,8 +656,10 @@ function initJoinPage() {
     }
   }
 
+  // Handle open button click
   if (openBtn) {
     openBtn.addEventListener("click", function() {
+      // Get input value
       let raw = "";
       if (input && input.value) {
         raw = input.value.trim();
@@ -665,6 +668,7 @@ function initJoinPage() {
         return;
       }
       
+      // Extract event ID from URL or text
       let id = raw;
       try {
         const maybeUrl = new URL(raw);
@@ -722,7 +726,7 @@ function initEventPage() {
   setSessionEvent(eventId);
   setLastOpenedEvent(eventId);
 
-  // DOM cache
+  // Cache DOM elements
   const gridEl = $("#availability-grid");
   const titleEl = $("#event-title");
   const shareEl = $("#share-link");
@@ -748,6 +752,7 @@ function initEventPage() {
   const mySlotsKey = "hsync:" + eventId + ":mySlots";
   const myNameKey = "hsync:" + eventId + ":myName";
 
+  // Initialize state
   let eventData = null;
   let cellsByIndex = new Map();
   let mySlotsArrayString = safeGet(mySlotsKey);
@@ -763,6 +768,7 @@ function initEventPage() {
   let calendarBusy = new Set();
   let calendarEventsBySlot = new Map();
 
+  // Calendar tooltip management
   let _calendarTooltip = null;
   function createCalendarTooltip() {
     if (_calendarTooltip) return _calendarTooltip;
@@ -775,7 +781,9 @@ function initEventPage() {
     return _calendarTooltip;
   }
 
+  // Format calendar event for tooltip display
   function formatEventForTooltip(ev) {
+    // Format time range
     let start = "";
     if (ev.start) {
       start = new Date(ev.start).toLocaleString();
@@ -792,6 +800,7 @@ function initEventPage() {
     } else if (end) {
       time = end;
     }
+    // Format location and description
     let loc = "";
     if (ev.location) {
       loc = "<div class=\"cal-ev-loc\">" + escapeHtml(ev.location) + "</div>";
@@ -800,6 +809,7 @@ function initEventPage() {
     if (ev.description) {
       desc = "<div class=\"cal-ev-desc\">" + escapeHtml(ev.description) + "</div>";
     }
+    // Format summary
     let summary = "(no title)";
     if (ev.summary) {
       summary = ev.summary;
@@ -836,9 +846,11 @@ function initEventPage() {
     });
   }
 
+  // Show tooltip with calendar events for a slot
   function showCalendarTooltipForSlot(idx, cell) {
     const events = calendarEventsBySlot.get(idx);
     if (!events || !events.length) return;
+    // Create and format tooltip
     const tip = createCalendarTooltip();
     let formattedEvents = [];
     for (let i = 0; i < events.length; i++) {
@@ -846,6 +858,7 @@ function initEventPage() {
     }
     tip.innerHTML = formattedEvents.join("<hr/>");
     tip.style.display = "block";
+    // Position tooltip above or below cell
     const rect = cell.getBoundingClientRect();
     const padding = 8;
     const maxW = Math.min(360, Math.max(180, rect.width * 2));
@@ -865,9 +878,11 @@ function initEventPage() {
     _calendarTooltip.style.display = "none";
   }
 
+  // Restore saved name and share link
   if (safeGet(myNameKey) && participantName) participantName.value = safeGet(myNameKey);
   if (shareEl) shareEl.value = window.location.href;
 
+  // Track drag selection state
   let isDown = false;
   let dragMode = null;
   window.addEventListener("pointerup", function() {
@@ -875,9 +890,11 @@ function initEventPage() {
     dragMode = null;
   });
 
+  // Load event data and render UI
   async function loadEvent() {
     try {
       eventData = await fetchJson("/api/events/" + encodeURIComponent(eventId));
+      // Update title
       if (titleEl) {
         if (eventData.title) {
           titleEl.textContent = eventData.title;
@@ -885,6 +902,7 @@ function initEventPage() {
           titleEl.textContent = "Availability poll";
         }
       }
+      // Render components
       renderRangeOptions();
       renderGrid();
       renderBestSlots();
@@ -894,6 +912,7 @@ function initEventPage() {
     }
   }
 
+  // Populate day selector dropdown
   function renderRangeOptions() {
     if (!rangeDay || !eventData) return;
     rangeDay.innerHTML = "";
@@ -909,7 +928,9 @@ function initEventPage() {
   /**
    * Attaches event listeners to grid cell for drag selection and tooltips
    */
+  // Add click, drag, and hover listeners to grid cell
   function attachCellListeners(cell) {
+    // Handle click/drag start
     cell.addEventListener("pointerdown", function(e) {
       e.preventDefault();
       const idx = Number(cell.dataset.index);
@@ -924,6 +945,7 @@ function initEventPage() {
       toggleSlot(idx, shouldSelect);
     });
     
+    // Handle drag over
     cell.addEventListener("pointerenter", function() {
       if (!isDown || !dragMode) {
         return;
@@ -932,6 +954,7 @@ function initEventPage() {
       toggleSlot(Number(cell.dataset.index), shouldSelect);
     });
     
+    // Show calendar tooltip on hover
     cell.addEventListener("mouseenter", function(ev) {
       const idx = Number(cell.dataset.index);
       if (calendarEventsBySlot.has(idx)) {
@@ -941,6 +964,7 @@ function initEventPage() {
       }
     });
     
+    // Hide tooltip on mouse leave
     cell.addEventListener("mouseleave", function() {
       clearTimeout(cell._calendarHoverTimeout);
       hideCalendarTooltip();
@@ -971,18 +995,21 @@ function initEventPage() {
   /**
    * Renders availability grid with heatmap and selection
    */
+  // Render availability grid with heatmap
   function renderGrid() {
     if (!gridEl || !eventData) return;
     
     gridEl.innerHTML = "";
     cellsByIndex = new Map();
     
+    // Calculate grid dimensions
     const days = eventData.dates.length;
     const rows = eventData.grid.slotsPerDay;
     const maxCount = eventData.grid.maxCount || 0;
     const aggregate = eventData.grid.aggregate || [];
     const templateCols = "minmax(60px,80px) repeat(" + days + ", minmax(56px,1fr))";
 
+    // Create header row
     const header = document.createElement("div");
     header.className = "grid-header-row";
     header.style.gridTemplateColumns = templateCols;
@@ -1003,6 +1030,7 @@ function initEventPage() {
     });
     gridEl.appendChild(header);
 
+    // Create time rows
     for (let r = 0; r < rows; r++) {
       const rowEl = document.createElement("div");
       rowEl.className = "grid-row";
@@ -1017,11 +1045,13 @@ function initEventPage() {
       }
       rowEl.appendChild(timeCell);
 
+      // Create day cells for this time slot
       for (let d = 0; d < days; d++) {
         const idx = d * rows + r;
         const cell = document.createElement("div");
         cell.className = "grid-cell";
         cell.dataset.index = String(idx);
+        // Calculate heatmap level
         let count = 0;
         if (aggregate[r] && aggregate[r][d]) {
           count = aggregate[r][d];
@@ -1032,6 +1062,7 @@ function initEventPage() {
         }
         cell.classList.add("heat-" + level);
         
+        // Mark user's selected slots
         if (mySlots.has(idx)) {
           cell.classList.add("my-slot");
         }
@@ -1047,6 +1078,7 @@ function initEventPage() {
   /**
    * Renders top 5 time slots with most participants
    */
+  // Render top 5 best time slots
   function renderBestSlots() {
     if (!bestSlots || !eventData) return;
     
@@ -1057,6 +1089,7 @@ function initEventPage() {
     const days = eventData.dates.length;
     const participants = eventData.participants || [];
 
+    // Collect all slots with availability
     const items = [];
     for (let d = 0; d < days; d++) {
       for (let r = 0; r < rows; r++) {
@@ -1071,10 +1104,12 @@ function initEventPage() {
       }
     }
     
+    // Sort by participant count
     items.sort(function(a, b) {
       return b.count - a.count;
     });
     
+    // Render top 5 or empty message
     if (items.length === 0) {
       const li = document.createElement("li");
       li.textContent = "No availability submitted yet.";
@@ -1101,12 +1136,14 @@ function initEventPage() {
         mainDiv.appendChild(countSpan);
         li.appendChild(mainDiv);
         
+        // Add participant list
         const p = document.createElement("div");
         p.className = "best-slot-participants";
         
         if (!s.names.length) {
           p.textContent = "No one has picked this time yet.";
         } else {
+          // Create dropdown with participant names
           const label = document.createElement("span");
           label.textContent = "Participants:";
           p.appendChild(label);
@@ -1137,6 +1174,7 @@ function initEventPage() {
       });
     }
     
+    // Update participant count
     if (participantCountEl) {
       let participantsArray = [];
       if (eventData.participants) {
@@ -1154,9 +1192,11 @@ function initEventPage() {
   /**
    * Saves selected slots to backend
    */
+  // Save user's availability to backend
   async function saveAvailability() {
     if (!eventData) return;
     
+    // Validate name
     let name = "";
     if (participantName && participantName.value) {
       name = participantName.value.trim();
@@ -1169,6 +1209,7 @@ function initEventPage() {
       return;
     }
     
+    // Send to backend
     try {
       const slotsArray = Array.from(mySlots);
       await fetchJson("/api/events/" + encodeURIComponent(eventId) + "/availability", {
@@ -1201,6 +1242,7 @@ function initEventPage() {
    * Builds time ranges for each slot (used for calendar overlap detection)
    * @returns {Array<Object>} Array of { start, end } objects
    */
+  // Build time ranges for calendar overlap detection
   function buildSlotRanges() {
     if (!eventData) return [];
     const perDay = eventData.grid.slotsPerDay;
@@ -1208,6 +1250,7 @@ function initEventPage() {
     const minutes = eventData.slotMinutes;
     const ranges = new Array(days * perDay);
     
+    // Calculate start/end timestamps for each slot
     for (let d = 0; d < days; d++) {
       for (let r = 0; r < perDay; r++) {
         const startMin = eventData.startTimeMinutes + r * minutes;
@@ -1225,24 +1268,11 @@ function initEventPage() {
     return ranges;
   }
 
-  /**
-   * Loads Google Calendar events and overlays them on the availability grid
-   * 
-   * This function:
-   * 1. Obtains a Google Calendar API access token (prompts user if needed)
-   * 2. Fetches calendar events from the user's primary calendar for the event date range
-   * 3. Determines which time slots overlap with calendar events
-   * 4. Marks those slots as "busy" in the UI with visual styling
-   * 5. Stores event details for tooltip display on hover
-   * 
-   * The calendar overlay helps users see their existing commitments when
-   * selecting available times, preventing double-booking.
-   * 
-   * @param {HTMLElement|null} statusEl - Optional status element to display progress/errors
-   * @returns {Promise<void>}
-   * 
-   * @see https://developers.google.com/calendar/api/v3/reference/events/list
-   */
+/**
+ * Loads calendar events and overlays them on the grid
+ * @param {HTMLElement|null} statusEl - Status element
+ */
+  // Load calendar events and mark overlapping slots
   async function loadCalendarOverlayForCurrentEvent(statusEl) {
     if (!eventData) {
       if (statusEl) {
@@ -1251,10 +1281,11 @@ function initEventPage() {
       return;
     }
     try {
+      // Get access token
       if (statusEl) statusEl.textContent = "Contacting Google Calendar...";
       const token = await getCalendarAccessToken();
       if (!token) throw new Error("No calendar token");
-      // fetch events
+      // Build date range for API request
       const first = eventData.dates[0];
       const last = eventData.dates[eventData.dates.length - 1];
       const startHours = Math.floor(eventData.startTimeMinutes / 60);
@@ -1270,6 +1301,7 @@ function initEventPage() {
       const endMinutesString = String(endMinutes).padStart(2, "0");
       const endDateString = last + "T" + endHoursString + ":" + endMinutesString + ":00";
       const endISO = new Date(endDateString).toISOString();
+      // Fetch calendar events
       const params = new URLSearchParams({ timeMin: startISO, timeMax: endISO, singleEvents: "true", orderBy: "startTime" });
       const calendarUrl = "https://www.googleapis.com/calendar/v3/calendars/primary/events?" + params.toString();
       const resp = await fetch(calendarUrl, {
@@ -1279,6 +1311,7 @@ function initEventPage() {
         throw new Error("Calendar error " + resp.status);
       }
       const data = await resp.json();
+      // Find overlapping slots
       const ranges = buildSlotRanges();
       calendarBusy.clear();
       calendarEventsBySlot.clear();
@@ -1287,6 +1320,7 @@ function initEventPage() {
         itemsArray = data.items;
       }
       for (let i = 0; i < itemsArray.length; i++) {
+        // Parse event times
         const ev = itemsArray[i];
         let startDateTime = null;
         if (ev.start && ev.start.dateTime) {
@@ -1304,6 +1338,7 @@ function initEventPage() {
         }
         const e = new Date(endDateTime).getTime();
         
+        // Check which slots overlap with this event
         ranges.forEach(function(r, idx) {
           if (r && r.start < e && r.end > s) {
             calendarBusy.add(idx);
@@ -1347,8 +1382,8 @@ function initEventPage() {
           }
         });
       }
-       // apply to DOM
-       cellsByIndex.forEach(function(cell, idx) {
+      // Apply busy styling to overlapping cells
+      cellsByIndex.forEach(function(cell, idx) {
          const isBusy = calendarBusy.has(idx);
          cell.classList.toggle("busy-calendar", isBusy);
        });
@@ -1357,12 +1392,9 @@ function initEventPage() {
          if (data.items) {
            itemsCount = data.items.length;
          }
-         statusEl.textContent = "Overlay applied from " + itemsCount + " event(s).";
-       }
-       // optionally send token to backend
-       sendCalendarAccessTokenToBackend(token).catch(function() {
-         // Ignore errors
-       });
+        statusEl.textContent = "Overlay applied from " + itemsCount + " event(s).";
+      }
+      sendCalendarAccessTokenToBackend(token).catch(function() {});
     } catch (e) {
       console.error(e);
       if (statusEl) {
@@ -1375,43 +1407,16 @@ function initEventPage() {
     }
   }
 
-  // ========================================================================
-  // UI EVENT HANDLERS
-  // ========================================================================
-  /**
-   * BLOCK: Wire Up UI Event Handlers
-   * 
-   * Attaches click handlers to all interactive buttons on the event page.
-   */
-  
-  // Save button: Save selected slots to backend
+  // Wire up button handlers
   if (saveBtn) {
     saveBtn.addEventListener("click", saveAvailability);
   }
   
-  // Clear button: Clear local selection (doesn't affect server)
   if (clearBtn) {
     clearBtn.addEventListener("click", clearMyAvailability);
   }
   
-  /**
-   * Range Apply Button Handler
-   * 
-   * Allows users to quickly select a range of time slots on a specific day.
-   * Useful for mobile devices where tapping individual cells is tedious.
-   * 
-   * Process:
-   * 1. Get selected day, start time, and end time
-   * 2. Convert times to minutes since midnight
-   * 3. Calculate which grid rows correspond to those times
-   * 4. Select all slots in that range for the selected day
-   * 
-   * Time-to-Row Conversion:
-   * - Formula: row = floor((timeMinutes - startTimeMinutes) / slotMinutes)
-   * - Clamped to valid row range (0 to rows-1)
-   * 
-   * Documentation: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/floor
-   */
+  // Handle range selection
   if (rangeApply) {
     rangeApply.addEventListener("click", function(ev) {
       ev.preventDefault();
@@ -1430,135 +1435,83 @@ function initEventPage() {
         to = rangeTo.value;
       }
     
-    // Validate inputs
-    if (!from || !to) {
-      alert("Please fill both From and To times.");
-      return;
-    }
+      // Validate inputs
+      if (!from || !to) {
+        alert("Please fill both From and To times.");
+        return;
+      }
     
-      // Parse time strings (HH:MM format)
+      // Parse times
       const fromParts = from.split(":");
       const fh = Number(fromParts[0]);
       const fm = Number(fromParts[1]);
       const toParts = to.split(":");
       const th = Number(toParts[0]);
       const tm = Number(toParts[1]);
-    
-    // Convert to minutes since midnight
-    const fromMinutes = fh * 60 + fm;
-    const toMinutes = th * 60 + tm;
-    
-    // Validate time range
-    if (toMinutes <= fromMinutes) {
-      alert("End time must be after start time.");
-      return;
-    }
-    
-    // Calculate which grid rows correspond to these times
-    const start = eventData.startTimeMinutes;
-    const step = eventData.slotMinutes;
-    const rows = eventData.grid.slotsPerDay;
-    
-      /**
-       * Clamp function: Converts time in minutes to grid row index
-       * 
-       * Formula: row = floor((timeMinutes - startTimeMinutes) / slotMinutes)
-       * Clamped to valid range: [0, rows-1]
-       */
+      
+      // Convert to minutes
+      const fromMinutes = fh * 60 + fm;
+      const toMinutes = th * 60 + tm;
+      
+      if (toMinutes <= fromMinutes) {
+        alert("End time must be after start time.");
+        return;
+      }
+      
+      // Calculate row indices
+      const start = eventData.startTimeMinutes;
+      const step = eventData.slotMinutes;
+      const rows = eventData.grid.slotsPerDay;
+      
       function clamp(mins) {
         const calculatedRow = Math.floor((mins - start) / step);
         return Math.max(0, Math.min(rows - 1, calculatedRow));
       }
       
-      const sRow = clamp(fromMinutes); // Start row
-      const eRow = clamp(toMinutes - 1); // End row (subtract 1 to include end time's slot)
+      const sRow = clamp(fromMinutes);
+      const eRow = clamp(toMinutes - 1);
       
-      // Select all slots in range for the selected day
-      // Slot index formula: (dayIndex * rows) + rowIndex
+      // Select all slots in range
       for (let r = sRow; r <= eRow; r++) {
         toggleSlot(dayIndex * rows + r, true);
       }
     });
   }
 
+  // Handle calendar overlay button
   if (overlayBtn) {
     overlayBtn.addEventListener("click", function() {
       loadCalendarOverlayForCurrentEvent(overlayStatus);
     });
   }
-  // expose loader for other code (e.g. sign-in flow)
   window.loadCalendarOverlayForCurrentEvent = loadCalendarOverlayForCurrentEvent;
 
-  // ========================================================================
-  // INITIAL PAGE LOAD
-  // ========================================================================
-  /**
-   * BLOCK: Initial Event Load and Auto-Apply Calendar Overlay
-   * 
-   * When the event page loads:
-   * 1. Fetch event data from backend
-   * 2. Render the grid and UI
-   * 3. If user has a valid cached calendar token, auto-apply calendar overlay
-   * 
-   * Auto-Apply Logic:
-   * - Checks sessionStorage for cached calendar token
-   * - Only applies if token is still valid (1 minute safety margin)
-   * - Avoids prompting user if they've already granted calendar access
-   * - Provides seamless experience for returning users
-   */
+  // Load event and auto-apply calendar overlay if token cached
   loadEvent().then(function() {
-    // Auto-apply calendar overlay if a valid session-scoped calendar token is cached
-    // This avoids prompting the user or requiring them to click the overlay button
     try {
       const raw = sessionStorage.getItem(CAL_TOKEN_KEY);
       if (raw) {
         const obj = JSON.parse(raw);
-        // Only auto-apply when token still valid (1 minute safety margin)
-        // Date.now() returns milliseconds, expires_at is also in milliseconds
         if (obj && obj.access_token && obj.expires_at && Date.now() < obj.expires_at - 60000) {
           loadCalendarOverlayForCurrentEvent(overlayStatus);
         }
       }
-    } catch (e) {
-      /* non-fatal - if parsing fails, just skip auto-apply */
-    }
+    } catch (e) {}
   });
 }
 
 /**
- * BLOCK: Appearance Page Initialization
- * 
- * This function sets up the appearance/theme settings page:
- * - Form submission handler for theme and density preferences
- * - Saves preferences to backend (requires authentication)
- * - Applies theme immediately to current page
- * 
- * Theme Application:
- * - Sets data-theme attribute on <html> element
- * - CSS uses attribute selectors to apply theme styles
- * - Example: <html data-theme="midnight"> triggers midnight theme
- * 
- * Documentation: https://developer.mozilla.org/en-US/docs/Web/API/HTMLFormElement/submit_event
- * Documentation: https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/dataset
+ * Initializes appearance page: theme and density settings
  */
 function initAppearancePage() {
   const form = $("#appearance-form");
   if (!form) return;
   
-  /**
-   * Form Submit Handler
-   * 
-   * Handles appearance form submission:
-   * - Gets selected theme and density from radio buttons
-   * - Sends to backend for persistence
-   * - Applies theme immediately to current page
-   */
+  // Handle form submission
   form.addEventListener("submit", async function(e) {
     e.preventDefault();
     
-    // Get selected radio button values
-    // querySelector with :checked pseudo-class gets the selected option
-    // Documentation: https://developer.mozilla.org/en-US/docs/Web/CSS/:checked
+    // Get selected values
     const themeInput = form.querySelector('input[name="theme"]:checked');
     let theme = null;
     if (themeInput && themeInput.value) {
@@ -1570,8 +1523,8 @@ function initAppearancePage() {
       density = densityInput.value;
     }
     
+    // Save to backend
     try {
-      // Save preferences to backend
       const data = await fetchJson("/api/theme", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1581,7 +1534,6 @@ function initAppearancePage() {
         }),
       });
       
-      // Apply theme immediately (no page reload needed)
       if (data && data.theme) {
         document.documentElement.dataset.theme = data.theme;
       }
@@ -1598,54 +1550,18 @@ function initAppearancePage() {
 // APPLICATION BOOTSTRAP - DOMContentLoaded Handler
 // ============================================================================
 
-/**
- * BLOCK: Application Initialization
- * 
- * This is the main entry point that runs when the DOM is fully loaded.
- * It initializes all page-specific functionality based on the current page.
- * 
- * Initialization Order:
- * 1. Restore profile picture/name from localStorage (if available)
- * 2. Initialize Google Sign-In button (after short delay for API loading)
- * 3. Load user and theme from backend
- * 4. Initialize page-specific functionality
- * 5. Wire up topbar navigation behavior
- * 
- * Page Detection:
- * - Uses body class names to identify page type
- * - Each page has its own initializer function
- * 
- * Documentation: https://developer.mozilla.org/en-US/docs/Web/API/Document/DOMContentLoaded_event
- * Documentation: https://developer.mozilla.org/en-US/docs/Web/API/WindowOrWorkerGlobalScope/setTimeout
- */
 document.addEventListener("DOMContentLoaded", function() {
-  /**
-   * BLOCK: Restore Profile from localStorage
-   * 
-   * Rehydrates the topbar profile picture and name from localStorage.
-   * This provides instant visual feedback without waiting for Google API.
-   */
+  // Restore profile from localStorage
   const storedPic = safeGet("hsync:profilePic");
   const storedName = safeGet("hsync:profileName");
   if (storedPic || storedName) {
     setTopbarProfile(storedPic, storedName);
   }
   
-  /**
-   * BLOCK: Initialize Google Sign-In Button
-   * 
-   * Delayed by 200ms to ensure Google's GSI script has loaded.
-   * The script is loaded with async defer, so it may not be ready immediately.
-   */
+  // Initialize Google Sign-In button
   setTimeout(initTopbarGsi, 200);
 
-  /**
-   * BLOCK: Page-Specific Initialization
-   * 
-   * Detects current page type and calls appropriate initializer.
-   * Each initializer is wrapped in loadCurrentUserAndTheme() to ensure
-   * user data and theme are loaded before page-specific code runs.
-   */
+  // Initialize page-specific functionality
   if (document.body.classList.contains("page-home")) {
     loadCurrentUserAndTheme().then(function() {
       initHomePage();
@@ -1665,33 +1581,19 @@ document.addEventListener("DOMContentLoaded", function() {
     initAppearancePage();
   }
 
-  /**
-   * BLOCK: Topbar Event Link Smart Navigation
-   * 
-   * Makes the "Event" link in the topbar navigate to the most relevant event:
-   * 1. Session event (current tab's active event) - highest priority
-   * 2. Last opened event (from localStorage) - second priority
-   * 3. Last joined event (from localStorage) - third priority
-   * 4. Join page (if no saved events) - fallback
-   * 
-   * Special handling:
-   * - Respects modifier keys (Ctrl/Cmd/Shift) and middle-click for new tabs
-   * - Prevents default navigation to use smart routing
-   * 
-   * Documentation: https://developer.mozilla.org/en-US/docs/Web/API/MouseEvent
-   */
+  // Wire up smart navigation for event link
   try {
     const eventLink = document.querySelector('.topbar-nav a[href="event.html"]');
     if (eventLink) {
       eventLink.addEventListener("click", function(ev) {
-        // Allow default behavior for modifier keys (new tab, etc.)
+        // Allow default for modifier keys
         if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button === 1) {
           return;
         }
         
         ev.preventDefault();
         
-        // Prefer session-scoped event for this tab, then fall back to persisted IDs
+        // Navigate to most relevant event
         const sessionId = getSessionEvent();
         let last = null;
         if (sessionId) {
